@@ -17,7 +17,6 @@ from agents.macro_regime_agent import MacroRegimeAgent
 from agents.risk_agent import RiskAgent
 from agents.sentiment_agent import SentimentAgent
 from agents.client_layer_agent import ClientLayerAgent
-from agents.learning_agent import LearningAgent
 from data.enhanced_data_provider import EnhancedDataProvider
 from engine.ai_portfolio_selector import AIPortfolioSelector
 
@@ -57,7 +56,6 @@ class PortfolioOrchestrator:
         
         # Meta agents
         self.agents['client_layer_agent'] = ClientLayerAgent(model_config, ips_config, openai_client)
-        self.agents['learning_agent'] = LearningAgent(model_config, openai_client)
         
         # Initialize AI Portfolio Selector
         if openai_client and perplexity_client:

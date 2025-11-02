@@ -37,8 +37,8 @@ messageFormat = "%(asctime)s %(message)s"
 
 [theme]
 # Optional: Set a professional theme
-primaryColor = "#FF4B4B"
-backgroundColor = "#35455eff"
+primaryColor = "#c46161ff"
+backgroundColor = "#202b3bff"
 secondaryBackgroundColor = "#2b3039ff"
-textColor = "#acaec2ff"
+textColor = "#eeeef3ff"
 font = "sans serif"
