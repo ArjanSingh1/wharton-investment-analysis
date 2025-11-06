@@ -235,17 +235,94 @@ class GoogleSheetsIntegration:
                 })
             except:
                 pass  # Formatting may already exist
-                
-            # Format rationale columns for proper text wrapping
+            
+            # Format numeric columns to ensure they display as numbers, not dates
             try:
-                # Find rationale columns and apply text wrapping
+                numeric_columns = ['Current Price', 'Price Change %', 'Price at Analysis', 'Price', 
+                                 'Beta', 'EPS', 'Week 52 Low', 'Week 52 High', 'Market Cap',
+                                 'Confidence Score', 'Pe Ratio', 'Dividend Yield',
+                                 'Value Agent Score', 'Growth Momentum Agent Score', 'Macro Regime Agent Score',
+                                 'Risk Agent Score', 'Sentiment Agent Score', 'Client Layer Agent Score', 'Learning Agent Score']
+                
+                for col_name in numeric_columns:
+                    if col_name in headers:
+                        col_index = headers.index(col_name)
+                        # Convert 0-based index to column letter
+                        def col_index_to_letter(index):
+                            result = ""
+                            while index >= 0:
+                                result = chr(ord('A') + index % 26) + result
+                                index = index // 26 - 1
+                            return result
+                        
+                        col_letter = col_index_to_letter(col_index)
+                        col_range = f'{col_letter}2:{col_letter}'  # Skip header row
+                        
+                        # Force number format
+                        if 'Price Change %' in col_name:
+                            # Format as percentage with 2 decimal places
+                            worksheet.format(col_range, {
+                                'numberFormat': {'type': 'NUMBER', 'pattern': '#,##0.00"%"'}
+                            })
+                        elif col_name in ['Current Price', 'Price at Analysis', 'Price', 'Week 52 Low', 'Week 52 High', 'EPS']:
+                            # Format as currency with 2 decimal places
+                            worksheet.format(col_range, {
+                                'numberFormat': {'type': 'NUMBER', 'pattern': '$#,##0.00'}
+                            })
+                        elif col_name == 'Market Cap':
+                            # Format as large number
+                            worksheet.format(col_range, {
+                                'numberFormat': {'type': 'NUMBER', 'pattern': '#,##0'}
+                            })
+                        else:
+                            # Format as decimal with appropriate precision
+                            worksheet.format(col_range, {
+                                'numberFormat': {'type': 'NUMBER', 'pattern': '#,##0.00'}
+                            })
+                
+                logger.info(f"Applied number formatting to numeric columns")
+            except Exception as e:
+                logger.warning(f"Could not format numeric columns: {e}")
+            
+            # Set consistent row height to prevent thick rows from text wrapping
+            try:
+                # Set all data rows to a standard height (21 pixels is default, compact height)
+                worksheet.set_basic_filter()  # This helps with viewing
+                # Batch update row heights - set to compact size
+                requests = []
+                for row_num in range(2, len(data_rows) + 2):  # Start from row 2 (skip header)
+                    requests.append({
+                        'updateDimensionProperties': {
+                            'range': {
+                                'sheetId': worksheet.id,
+                                'dimension': 'ROWS',
+                                'startIndex': row_num - 1,  # 0-indexed
+                                'endIndex': row_num
+                            },
+                            'properties': {
+                                'pixelSize': 21  # Standard compact row height
+                            },
+                            'fields': 'pixelSize'
+                        }
+                    })
+                
+                # Execute batch update for row heights
+                if requests and len(requests) <= 1000:  # Limit batch size
+                    self.sheet.batch_update({'requests': requests[:1000]})
+                    logger.info(f"Set compact row height for all data rows")
+            except Exception as e:
+                logger.warning(f"Could not set row heights: {e}")
+                
+            # Format rationale columns - NO WRAP to avoid thick rows
+            try:
+                # Find rationale columns and apply NO WRAP with CLIP overflow
                 rationale_col_indices = []
                 for i, col_name in enumerate(headers):
-                    if 'Rationale' in str(col_name) or 'Analysis' in str(col_name):
+                    if 'Rationale' in str(col_name) or 'Analysis' in str(col_name) or 'Summary' in str(col_name):
                         rationale_col_indices.append(i)
                 
                 if rationale_col_indices:
-                    # Apply text wrapping to all data rows for rationale columns
+                    # Apply NO WRAP to all data rows for rationale columns to prevent thick rows
                     for col_index in rationale_col_indices:
                         # Convert 0-based index to column letter
                         def col_index_to_letter(index):
@@ -257,15 +334,15 @@ class GoogleSheetsIntegration:
                         
                         col_letter = col_index_to_letter(col_index)
                         
-                        # Format entire column for text wrapping
+                        # Format entire column with NO WRAP and CLIP overflow
                         col_range = f'{col_letter}:{col_letter}'
                         worksheet.format(col_range, {
-                            'wrapStrategy': 'WRAP',
+                            'wrapStrategy': 'CLIP',  # Changed from WRAP to CLIP - no text wrapping!
                             'verticalAlignment': 'TOP',
                             'textFormat': {'fontSize': 9}
                         })
                         
-                    logger.info(f"Applied text wrapping to {len(rationale_col_indices)} rationale columns")
+                    logger.info(f"Applied CLIP formatting (no wrap) to {len(rationale_col_indices)} rationale columns")
                         
             except Exception as e:
                 logger.warning(f"Could not format rationale columns: {e}")

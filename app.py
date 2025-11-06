@@ -14,6 +14,7 @@ from datetime import datetime, timedelta
 import os
 from pathlib import Path
 import yaml
+import json
 
 # Setup page config
 st.set_page_config(
@@ -35,11 +36,27 @@ from data.enhanced_data_provider import EnhancedDataProvider
 from engine.portfolio_orchestrator import PortfolioOrchestrator
 from engine.backtest import BacktestEngine
 
+# Import OpenAI at module level to avoid circular dependency issues
+try:
+    from openai import OpenAI
+except ImportError:
+    OpenAI = None
+
 # Load environment variables
 load_dotenv()
 
 # Setup logging
 setup_logging(os.getenv('LOG_LEVEL', 'INFO'))
+
+# Suppress noisy WebSocket errors from Streamlit (these are harmless)
+import logging
+logging.getLogger('tornado.application').setLevel(logging.ERROR)
+logging.getLogger('tornado.websocket').setLevel(logging.ERROR)
+logging.getLogger('asyncio').setLevel(logging.ERROR)
+
+# Create logger instance
+import logging
+logger = logging.getLogger(__name__)
 
 # Initialize session state
 if 'initialized' not in st.session_state:
@@ -52,6 +69,7 @@ if 'initialized' not in st.session_state:
     st.session_state.sheets_integration = None
     st.session_state.sheets_enabled = False
     st.session_state.sheets_auto_update = False
+    st.session_state.show_sheets_export = False
 
 
 def get_client_profile_weights(client_name: str) -> dict:
@@ -200,19 +218,23 @@ def initialize_system():
         perplexity_client = None
         
         try:
-            from openai import OpenAI
-            openai_client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
-            st.session_state.openai_client = openai_client
+            if OpenAI is not None:
+                openai_client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+                st.session_state.openai_client = openai_client
+            else:
+                st.warning("⚠️ OpenAI library not available. Please install: pip install openai")
         except Exception as e:
             st.warning(f"⚠️ OpenAI client initialization failed: {e}")
         
         try:
-            from openai import OpenAI
-            perplexity_client = OpenAI(
-                api_key=os.getenv('PERPLEXITY_API_KEY'),
-                base_url="https://api.perplexity.ai"
-            )
-            st.session_state.perplexity_client = perplexity_client
+            if OpenAI is not None:
+                perplexity_client = OpenAI(
+                    api_key=os.getenv('PERPLEXITY_API_KEY'),
+                    base_url="https://api.perplexity.ai"
+                )
+                st.session_state.perplexity_client = perplexity_client
+            else:
+                st.warning("⚠️ OpenAI library not available for Perplexity. Please install: pip install openai")
         except Exception as e:
             st.warning(f"⚠️ Perplexity client initialization failed: {e}")
         
@@ -393,7 +415,7 @@ def main():
     st.sidebar.markdown("---")
     page = st.sidebar.radio(
         "Select Analysis Mode:",
-        ["Stock Analysis", "Portfolio Recommendations", "QA & Learning Center", "System Configuration", "System Status & AI Disclosure"]
+        ["Stock Analysis", "Portfolio Recommendations", "Portfolio Management", "QA & Learning Center", "System Configuration", "System Status & AI Disclosure"]
     )
     
     # Route to appropriate page
@@ -401,6 +423,8 @@ def main():
         stock_analysis_page()
     elif page == "Portfolio Recommendations":
         portfolio_recommendations_page()
+    elif page == "Portfolio Management":
+        portfolio_management_page()
     elif page == "QA & Learning Center":
         qa_learning_center_page()
     elif page == "System Configuration":
@@ -458,8 +482,8 @@ def stock_analysis_page():
             help="Date for analysis (leave as today for latest data)"
         )
     
-    # Weight Preset Selection
-    st.subheader("⚖️ Agent Weight Preset Selection")
+    # Weight preset
+    st.markdown("### ⚖️ Agent Weights")
     col1, col2, col3 = st.columns(3)
     
     with col1:
@@ -700,26 +724,19 @@ def stock_analysis_page():
                 # Track start time
                 start_time = time.time()
                 
-                # Run analysis with optional agent weights
-                # Normalize analysis_date to YYYY-MM-DD string (handle date_input returning date, datetime, tuple/range, or None)
-                analysis_date_value = analysis_date
-                if isinstance(analysis_date_value, (tuple, list)):
-                    analysis_date_value = analysis_date_value[0] if analysis_date_value else datetime.now().date()
-                if analysis_date_value is None:
-                    analysis_date_str = datetime.now().strftime('%Y-%m-%d')
-                elif isinstance(analysis_date_value, datetime):
-                    analysis_date_str = analysis_date_value.strftime('%Y-%m-%d')
-                elif hasattr(analysis_date_value, 'strftime'):
-                    try:
-                        analysis_date_str = analysis_date_value.strftime('%Y-%m-%d')
-                    except Exception:
-                        analysis_date_str = str(analysis_date_value)
+                # Convert analysis_date to string format
+                # Handle both date object and potential tuple from date_input
+                if isinstance(analysis_date, (datetime, type(datetime.now().date()))):
+                    date_str = analysis_date.strftime('%Y-%m-%d') if hasattr(analysis_date, 'strftime') else str(analysis_date)
+                elif isinstance(analysis_date, tuple) and len(analysis_date) > 0:
+                    date_str = analysis_date[0].strftime('%Y-%m-%d') if hasattr(analysis_date[0], 'strftime') else str(analysis_date[0])
                 else:
-                    analysis_date_str = str(analysis_date_value)
+                    date_str = datetime.now().strftime('%Y-%m-%d')
                 
+                # Run analysis with optional agent weights
                 result = st.session_state.orchestrator.analyze_stock(
                     ticker=ticker,
-                    analysis_date=analysis_date_str,
+                    analysis_date=date_str,
                     agent_weights=agent_weights
                 )
                 
@@ -826,26 +843,19 @@ def stock_analysis_page():
                 }
                 
                 try:
-                    # Normalize analysis_date to YYYY-MM-DD string (handle date_input returning date, datetime, tuple/range, or None)
-                    analysis_date_value = analysis_date
-                    if isinstance(analysis_date_value, (tuple, list)):
-                        analysis_date_value = analysis_date_value[0] if analysis_date_value else datetime.now().date()
-                    if analysis_date_value is None:
-                        analysis_date_str = datetime.now().strftime('%Y-%m-%d')
-                    elif isinstance(analysis_date_value, datetime):
-                        analysis_date_str = analysis_date_value.strftime('%Y-%m-%d')
-                    elif hasattr(analysis_date_value, 'strftime'):
-                        try:
-                            analysis_date_str = analysis_date_value.strftime('%Y-%m-%d')
-                        except Exception:
-                            analysis_date_str = str(analysis_date_value)
+                    # Convert analysis_date to string format
+                    # Handle both date object and potential tuple from date_input
+                    if isinstance(analysis_date, (datetime, type(datetime.now().date()))):
+                        date_str = analysis_date.strftime('%Y-%m-%d') if hasattr(analysis_date, 'strftime') else str(analysis_date)
+                    elif isinstance(analysis_date, tuple) and len(analysis_date) > 0:
+                        date_str = analysis_date[0].strftime('%Y-%m-%d') if hasattr(analysis_date[0], 'strftime') else str(analysis_date[0])
                     else:
-                        analysis_date_str = str(analysis_date_value)
+                        date_str = datetime.now().strftime('%Y-%m-%d')
                     
                     # Run analysis for this stock
                     result = st.session_state.orchestrator.analyze_stock(
                         ticker=stock_ticker,
-                        analysis_date=analysis_date_str,
+                        analysis_date=date_str,
                         agent_weights=agent_weights
                     )
                     
@@ -866,6 +876,42 @@ def stock_analysis_page():
                         failed_tickers.append((stock_ticker, result['error']))
                     else:
                         results.append(result)
+                        
+                        # 🔧 FIX: Automatically log each successful analysis to QA archive
+                        # This ensures ALL analyzed stocks (not just individually clicked ones) get archived
+                        if st.session_state.get('qa_system'):
+                            try:
+                                qa_system = st.session_state.qa_system
+                                recommendation_type = _determine_recommendation_type(result['final_score'])
+                                
+                                # Create comprehensive rationale
+                                agent_rationales = result.get('agent_rationales', {})
+                                current_date = datetime.now().strftime('%Y-%m-%d')
+                                final_rationale = f"Investment analysis for {result['ticker']} completed on {current_date}"
+                                if 'client_layer_agent' in agent_rationales:
+                                    final_rationale = agent_rationales['client_layer_agent'][:500] + "..." if len(agent_rationales.get('client_layer_agent', '')) > 500 else agent_rationales.get('client_layer_agent', final_rationale)
+                                
+                                # Log complete analysis automatically for multi-stock batch
+                                analysis_id = qa_system.log_complete_analysis(
+                                    ticker=result['ticker'],
+                                    price=result['fundamentals'].get('price', 0),
+                                    recommendation=recommendation_type,
+                                    confidence_score=result['final_score'],
+                                    final_rationale=final_rationale,
+                                    agent_scores=result.get('agent_scores', {}),
+                                    agent_rationales=agent_rationales,
+                                    key_factors=[],  # Will be populated later if needed
+                                    fundamentals=result.get('fundamentals', {}),
+                                    market_data=result.get('market_data', {}),
+                                    sector=result['fundamentals'].get('sector'),
+                                    market_cap=result['fundamentals'].get('market_cap')
+                                )
+                                
+                                if analysis_id:
+                                    print(f"🔧 DEBUG: Auto-logged {stock_ticker} to QA archive with ID: {analysis_id}")
+                                    
+                            except Exception as e:
+                                print(f"🔧 WARNING: Could not auto-log {stock_ticker} to QA archive: {e}")
                     
                     # Update time estimate with actual batch performance
                     completed = idx + 1
@@ -910,41 +956,58 @@ def stock_analysis_page():
 def display_stock_analysis(result: dict):
     """Display detailed stock analysis results with enhanced rationales."""
     
-    # Automatically log complete analysis to archive
+    # Automatically log complete analysis to archive (avoid duplicates)
     if st.session_state.get('qa_system'):
         try:
             qa_system = st.session_state.qa_system
-            recommendation_type = _determine_recommendation_type(result['final_score'])
+            ticker = result['ticker']
             
-            # Create comprehensive rationale
-            agent_rationales = result.get('agent_rationales', {})
-            current_date = datetime.now().strftime('%Y-%m-%d')
-            final_rationale = f"Investment analysis for {result['ticker']} completed on {current_date}"
-            if 'client_layer_agent' in agent_rationales:
-                final_rationale = agent_rationales['client_layer_agent'][:500] + "..." if len(agent_rationales.get('client_layer_agent', '')) > 500 else agent_rationales.get('client_layer_agent', final_rationale)
+            # Check if this analysis was already logged recently (within last 5 minutes)
+            # This prevents duplicate logging in multi-stock analysis when users click tabs
+            analysis_archive = qa_system.get_analysis_archive()
+            recently_logged = False
             
-            # Log complete analysis
-            analysis_id = qa_system.log_complete_analysis(
-                ticker=result['ticker'],
-                price=result['fundamentals'].get('price', 0),
-                recommendation=recommendation_type,
-                confidence_score=result['final_score'],
-                final_rationale=final_rationale,
-                agent_scores=result.get('agent_scores', {}),
-                agent_rationales=agent_rationales,
-                key_factors=[],  # Will be populated later
-                fundamentals=result.get('fundamentals', {}),
-                market_data=result.get('market_data', {}),
-                sector=result['fundamentals'].get('sector'),
-                market_cap=result['fundamentals'].get('market_cap')
-            )
+            if ticker in analysis_archive:
+                latest_analysis = analysis_archive[ticker][0]  # Most recent is first 
+                time_diff = datetime.now() - latest_analysis.timestamp
+                if time_diff.total_seconds() < 300:  # 5 minutes
+                    recently_logged = True
+                    print(f"🔧 DEBUG: {ticker} already logged recently, skipping duplicate")
             
-            if analysis_id:
-                # Add a small indicator that analysis was saved
-                st.info(f"📚 Analysis automatically saved to archive (ID: {analysis_id})")
+            if not recently_logged:
+                recommendation_type = _determine_recommendation_type(result['final_score'])
                 
+                # Create comprehensive rationale
+                agent_rationales = result.get('agent_rationales', {})
+                current_date = datetime.now().strftime('%Y-%m-%d')
+                final_rationale = f"Investment analysis for {ticker} completed on {current_date}"
+                if 'client_layer_agent' in agent_rationales:
+                    final_rationale = agent_rationales['client_layer_agent'][:500] + "..." if len(agent_rationales.get('client_layer_agent', '')) > 500 else agent_rationales.get('client_layer_agent', final_rationale)
+                
+                # Log complete analysis
+                analysis_id = qa_system.log_complete_analysis(
+                    ticker=ticker,
+                    price=result['fundamentals'].get('price', 0),
+                    recommendation=recommendation_type,
+                    confidence_score=result['final_score'],
+                    final_rationale=final_rationale,
+                    agent_scores=result.get('agent_scores', {}),
+                    agent_rationales=agent_rationales,
+                    key_factors=[],  # Will be populated later
+                    fundamentals=result.get('fundamentals', {}),
+                    market_data=result.get('market_data', {}),
+                    sector=result['fundamentals'].get('sector'),
+                    market_cap=result['fundamentals'].get('market_cap')
+                )
+                
+                if analysis_id:
+                    # Add a small indicator that analysis was saved
+                    st.info(f"📚 Analysis automatically saved to archive (ID: {analysis_id})")
+                    print(f"🔧 DEBUG: Logged {ticker} to QA archive with ID: {analysis_id}")
+                    
         except Exception as e:
             st.warning(f"⚠️ Could not auto-save analysis: {e}")
+            print(f"🔧 ERROR: Auto-save failed for {result.get('ticker', 'unknown')}: {e}")
     
     # Header with company info
     col1, col2 = st.columns([3, 1])
@@ -1021,8 +1084,85 @@ def display_stock_analysis(result: dict):
     elif weight_preset == 'client_profile_weights':
         st.info("ℹ️ This analysis used weights derived from the selected client profile.")
     
-    # Enhanced key metrics section
-    st.subheader("📊 Enhanced Investment Metrics")
+    # 🆕 IMPROVEMENT #7: Side-by-Side Comparison with Previous Analysis
+    ticker = result['ticker']
+    qa_system = st.session_state.get('qa_system')
+    
+    if qa_system and ticker in qa_system.all_analyses:
+        analyses = qa_system.all_analyses[ticker]
+        if len(analyses) >= 2:
+            # Get the most recent previous analysis
+            sorted_analyses = sorted(analyses, key=lambda x: x.timestamp, reverse=True)
+            previous = sorted_analyses[1] if len(sorted_analyses) > 1 else None
+            
+            if previous:
+                st.info(f"📊 Previous analysis available from {previous.timestamp.strftime('%b %d, %Y')}")
+                
+                with st.expander("🔄 Compare with Previous Analysis", expanded=False):
+                    st.markdown("#### Side-by-Side Comparison")
+                    
+                    col_prev, col_curr = st.columns(2)
+                    
+                    with col_prev:
+                        st.markdown("**📅 Previous** ({})".format(previous.timestamp.strftime('%m/%d/%y')))
+                        st.metric("Score", f"{previous.confidence_score:.1f}/100")
+                        st.metric("Recommendation", previous.recommendation.value.upper())
+                        st.metric("Price", f"${previous.price_at_analysis:.2f}")
+                    
+                    with col_curr:
+                        st.markdown("**📅 Current** ({})".format(datetime.now().strftime('%m/%d/%y')))
+                        st.metric("Score", f"{result['final_score']:.1f}/100")
+                        rec_type = _determine_recommendation_type(result['final_score'])
+                        st.metric("Recommendation", rec_type.value.upper())
+                        st.metric("Price", f"${result['fundamentals'].get('price', 0):.2f}")
+                    
+                    # Change analysis
+                    st.markdown("---")
+                    st.markdown("**📈 Changes Over Time**")
+                    
+                    score_change = result['final_score'] - previous.confidence_score
+                    price_change = result['fundamentals'].get('price', 0) - previous.price_at_analysis
+                    price_change_pct = (price_change / previous.price_at_analysis * 100) if previous.price_at_analysis > 0 else 0
+                    days_between = (datetime.now() - previous.timestamp).days
+                    
+                    col_ch1, col_ch2, col_ch3 = st.columns(3)
+                    with col_ch1:
+                        st.metric("Score Change", f"{score_change:+.1f} points", 
+                                 delta=f"{score_change:+.1f}", 
+                                 delta_color="normal" if score_change > 0 else "inverse")
+                    with col_ch2:
+                        st.metric("Price Change", f"${price_change:+.2f}",
+                                 delta=f"{price_change_pct:+.1f}%")
+                    with col_ch3:
+                        st.metric("Time Between", f"{days_between} days")
+                    
+                    # Agent-level changes
+                    if hasattr(previous, 'agent_scores') and previous.agent_scores:
+                        st.write("**Agent Score Changes:**")
+                        agent_changes = []
+                        for agent in result['agent_scores'].keys():
+                            if agent in previous.agent_scores:
+                                change = result['agent_scores'][agent] - previous.agent_scores[agent]
+                                agent_changes.append({
+                                    'Agent': agent.replace('_', ' ').title(),
+                                    'Previous': f"{previous.agent_scores[agent]:.1f}",
+                                    'Current': f"{result['agent_scores'][agent]:.1f}",
+                                    'Change': f"{change:+.1f}",
+                                    'Direction': '📈' if change > 0 else '📉' if change < 0 else '➡️'
+                                })
+                        
+                        change_df = pd.DataFrame(agent_changes)
+                        st.dataframe(change_df, use_container_width=True, hide_index=True)
+                        
+                        # Highlight biggest changes
+                        biggest_changes = sorted(agent_changes, key=lambda x: abs(float(x['Change'])), reverse=True)[:3]
+                        st.write("**Biggest Changes:**")
+                        for item in biggest_changes:
+                            if abs(float(item['Change'])) > 5:
+                                st.write(f"• {item['Direction']} **{item['Agent']}**: {item['Change']} points")
+    
+    # Enhanced key metrics section with modern card-style layout
+    st.markdown("### 📊 Key Investment Metrics")
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
@@ -1033,23 +1173,26 @@ def display_stock_analysis(result: dict):
         price_value = result['fundamentals'].get('price')
         st.metric("Current Price", f"${price_value:.2f}" if price_value and price_value != 0 else "N/A")
     with col3:
-        pe_ratio = result['fundamentals']['pe_ratio']
-        st.metric("P/E Ratio", f"{pe_ratio:.1f}" if pe_ratio else "N/A", help="Price-to-Earnings ratio")
+        pe_ratio = result['fundamentals'].get('pe_ratio')
+        st.metric("P/E Ratio", f"{pe_ratio:.1f}" if pe_ratio and pe_ratio != 0 else "N/A", help="Price-to-Earnings ratio")
     with col4:
-        beta = result['fundamentals']['beta']
-        st.metric("Beta", f"{beta:.2f}" if beta else "N/A", help="Market volatility coefficient")
+        beta = result['fundamentals'].get('beta')
+        st.metric("Beta", f"{beta:.2f}" if beta and beta != 0 else "N/A", help="Market volatility coefficient")
     
     # Additional Enhanced Metrics Row
     col5, col6, col7, col8 = st.columns(4)
     with col5:
         div_yield = result['fundamentals'].get('dividend_yield')
-        if div_yield:
-            st.metric("Dividend Yield", f"{div_yield*100:.2f}%", help="Annual dividend yield percentage")
+        # Dividend yield can be a decimal (0.02 = 2%) or already a percentage (2.0 = 2%)
+        if div_yield and div_yield != 0:
+            # If it's a small decimal, multiply by 100, otherwise use as-is
+            display_yield = div_yield * 100 if div_yield < 1 else div_yield
+            st.metric("Dividend Yield", f"{display_yield:.2f}%", help="Annual dividend yield percentage")
         else:
             st.metric("Dividend Yield", "N/A", help="Annual dividend yield percentage")
     with col6:
         eps = result['fundamentals'].get('eps')
-        if eps:
+        if eps and eps != 0:
             st.metric("EPS", f"${eps:.2f}", help="Earnings per share")
         else:
             st.metric("EPS", "N/A", help="Earnings per share")
@@ -1091,19 +1234,49 @@ def display_stock_analysis(result: dict):
             price_position = (current_price - week_52_low) / (week_52_high - week_52_low)
             price_position = max(0, min(1, price_position))  # Clamp between 0 and 1
             
-            # Create a visual representation using a progress bar
+            # Create a visual representation with a fully shaded bar
             st.markdown("**Current Price Position in 52-Week Range:**")
-            st.progress(price_position)
-            st.markdown(f"**Current: ${current_price:.2f}** ({price_position*100:.1f}% of range)")
+            
+            # Determine color based on position
+            if price_position >= 0.80:
+                bar_color = "#00cc00"  # Green - near high
+                position_text = "Near 52W High 🚀"
+            elif price_position >= 0.60:
+                bar_color = "#66cc00"  # Yellow-green
+                position_text = "Upper Range"
+            elif price_position >= 0.40:
+                bar_color = "#ffaa00"  # Orange
+                position_text = "Mid Range"
+            elif price_position >= 0.20:
+                bar_color = "#ff6600"  # Orange-red
+                position_text = "Lower Range"
+            else:
+                bar_color = "#cc0000"  # Red - near low
+                position_text = "Near 52W Low 📉"
+            
+            # Create a fully shaded horizontal bar using HTML/CSS
+            bar_html = f"""
+            <div style="position: relative; width: 100%; height: 40px; background-color: #e0e0e0; border-radius: 8px; overflow: hidden; margin: 10px 0;">
+                <div style="position: absolute; left: 0; top: 0; width: {price_position*100}%; height: 100%; background: linear-gradient(90deg, {bar_color} 0%, {bar_color} 100%); border-radius: 8px 0 0 8px;"></div>
+                <div style="position: absolute; left: {price_position*100}%; top: 50%; transform: translate(-50%, -50%); width: 3px; height: 45px; background-color: #000; z-index: 10;"></div>
+                <div style="position: absolute; left: {price_position*100}%; top: -30px; transform: translateX(-50%); font-weight: bold; font-size: 14px; color: #000; white-space: nowrap;">
+                    ${current_price:.2f}
+                </div>
+            </div>
+            """
+            st.markdown(bar_html, unsafe_allow_html=True)
+            
+            # Position info
+            st.markdown(f"**{position_text}** • {price_position*100:.1f}% of 52-week range")
             
         with col3:
             st.metric("52W High", f"${week_52_high:.2f}")
     
     # ========== COMPREHENSIVE SCORE ANALYSIS SECTION ==========
     st.markdown("---")
-    st.subheader("⚖️ Comprehensive Score Analysis")
+    st.markdown("### ⚖️ Score Analysis & Agent Breakdown")
     
-    with st.expander("📊 Detailed Score Breakdown & Weight Analysis", expanded=False):
+    with st.expander("📊 Detailed Breakdown", expanded=True):
         # Get agent scores and weights
         agent_scores = result.get('agent_scores', {})
         blended_score = result.get('blended_score', result.get('final_score', 0))
@@ -1250,16 +1423,16 @@ Formula: Blended Score = Weighted Sum / Total Weight
     
     # Enhanced Agent Analysis Section
     st.markdown("---")
-    st.subheader("🤖 Multi-Agent Analysis")
+    st.markdown("### 🤖 Agent Analysis Details")
     
     # Display enhanced agent rationales with collaboration
     display_enhanced_agent_rationales(result)
     
-    # ========== COMPREHENSIVE OVERALL RATIONALE SECTION ==========
+    # Comprehensive rationale
     st.markdown("---")
-    st.subheader("📋 Comprehensive Investment Rationale")
+    st.markdown("### 📋 Investment Rationale")
     
-    with st.expander("📄 View Complete Analysis Report", expanded=False):
+    with st.expander("View Full Report", expanded=False):
         # Get the comprehensive rationale from the result
         comprehensive_rationale = result.get('rationale', '')
         
@@ -1328,18 +1501,17 @@ Formula: Blended Score = Weighted Sum / Total Weight
     
     # Client validation summary
     st.markdown("---")
-    st.subheader("✅ Investment Eligibility")
+    st.markdown("### ✅ Client Suitability")
     if result['eligible']:
-        st.success("**✅ Approved** - This investment passes all client suitability requirements")
+        st.success("**Approved** - Meets all suitability requirements")
     else:
-        st.error("**❌ Rejected** - This investment does not meet client suitability requirements")
+        st.error("**Not Suitable** - Does not meet requirements")
         if result['client_layer'].get('violations'):
-            st.write("**Specific Violations:**")
             for violation in result['client_layer']['violations']:
                 st.write(f"• {violation}")
     
     # Export functionality
-    with st.expander("📥 Export Analysis"):
+    with st.expander("📥 Export Analysis", expanded=False):
         agent_scores = result['agent_scores']
         export_data = {
             'Ticker': [result['ticker']],
@@ -1353,46 +1525,89 @@ Formula: Blended Score = Weighted Sum / Total Weight
         
         df = pd.DataFrame(export_data)
         csv = df.to_csv(index=False)
-        
-        st.markdown("---")
-        
         current_timestamp = datetime.now().strftime('%Y%m%d')
-        st.download_button(
-            label="📄 Download Analysis Report (CSV)",
-            data=csv,
-            file_name=f"{result['ticker']}_investment_analysis_{current_timestamp}.csv",
-            mime="text/csv"
-        )
+        
+        col_exp1, col_exp2 = st.columns(2)
+        
+        with col_exp1:
+            st.download_button(
+                label="� Download CSV Report",
+                data=csv,
+                file_name=f"{result['ticker']}_analysis_{current_timestamp}.csv",
+                mime="text/csv",
+                use_container_width=True
+            )
+        
+        with col_exp2:
+            # Generate detailed markdown report
+            ticker = result['ticker']
+            report = f"""# Investment Analysis: {ticker}
+## {result['fundamentals'].get('name', 'N/A')}
+
+**Date:** {datetime.now().strftime('%B %d, %Y')}
+**Sector:** {result['fundamentals'].get('sector', 'N/A')}
+**Price:** ${result['fundamentals'].get('price', 0):.2f}
+
+---
+
+## Score: {result['final_score']:.1f}/100
+**Status:** {'✅ APPROVED' if result['eligible'] else '❌ NOT APPROVED'}
+
+---
+
+## Agent Breakdown
+"""
+            for agent, score in agent_scores.items():
+                agent_name = agent.replace('_', ' ').title()
+                report += f"- **{agent_name}:** {score:.1f}/100\n"
+            
+            report += f"\n---\n\n## Key Metrics\n"
+            report += f"- **Market Cap:** ${result['fundamentals'].get('market_cap', 0)/1e9:.2f}B\n"
+            report += f"- **P/E Ratio:** {result['fundamentals'].get('pe_ratio', 'N/A')}\n"
+            report += f"- **Beta:** {result['fundamentals'].get('beta', 'N/A')}\n"
+            
+            if result['fundamentals'].get('dividend_yield'):
+                report += f"- **Dividend Yield:** {result['fundamentals']['dividend_yield']*100:.2f}%\n"
+            
+            report += f"\n---\n\n## Agent Analysis\n"
+            for agent, rationale in result.get('agent_rationales', {}).items():
+                if rationale:
+                    agent_name = agent.replace('_', ' ').title()
+                    report += f"### {agent_name}\n{rationale}\n\n"
+            
+            report += f"\n---\n*Wharton Investment Analysis System*\n"
+            
+            st.download_button(
+                label="� Download Full Report",
+                data=report,
+                file_name=f"{ticker}_report_{current_timestamp}.md",
+                mime="text/markdown",
+                use_container_width=True
+            )
     
-    # QA System Integration - Log for Learning (MOVED OUTSIDE EXPANDER)
+    # QA System Integration - Log for Learning
     st.markdown("---")
-    st.subheader("🎯 Quality Assurance & Learning")
+    st.markdown("### 🎯 Performance Tracking")
     print(f"🔧 DEBUG: *** REACHED QA SECTION FOR {result['ticker']} ***")
     
     # Check if QA system is available
     qa_system = st.session_state.get('qa_system')
     print(f"🔧 DEBUG: QA system check - Available: {qa_system is not None}")
     if not qa_system:
-        st.error("❌ QA System not initialized. Please restart the application to enable learning features.")
-        st.info("💡 The QA system tracks recommendation performance and helps improve analysis over time.")
+        st.warning("⚠️ QA System unavailable. Restart app to enable performance tracking.")
     else:
         try:
             # Show current recommendation details
             recommendation_type = _determine_recommendation_type(result['final_score'])
             confidence_score = result['final_score']
             
-            st.write("**Log this analysis for performance tracking and model improvement?**")
-            st.write(f"**Recommendation:** {recommendation_type.value.upper()} | **Confidence:** {confidence_score:.1f}/100")
-            
             # Check if already logged
             already_logged = result['ticker'] in qa_system.recommendations if qa_system else False
             print(f"🔧 DEBUG: Already logged check for {result['ticker']}: {already_logged}")
             if already_logged:
-                st.info(f"ℹ️ {result['ticker']} is already being tracked.")
-                st.write("**Ticker is already tracked, but you can click the button to update the tracking.**")
+                st.info(f"ℹ️ {result['ticker']} is currently tracked")
             
-            # Always show the button, regardless of tracking status
-            st.write("**Available for tracking:**")
+            st.write(f"**{recommendation_type.value.upper()}** ({confidence_score:.1f}/100)")
             print(f"🔧 DEBUG: About to render button for {result['ticker']}")
             if st.button("🎯 Track Ticker for QA Monitoring", type="primary", use_container_width=True, key=f"track_btn_{result['ticker']}"):
                 print(f"🔧 DEBUG: *** BUTTON CLICKED *** Track Ticker button clicked for {result['ticker']}")
@@ -1486,6 +1701,71 @@ Formula: Blended Score = Weighted Sum / Total Weight
                     
         except Exception as e:
             st.warning(f"⚠️ Error in QA section: {str(e)}")
+    
+    # Personal notes
+    st.markdown("---")
+    st.markdown("### 📝 Notes")
+    
+    # Initialize notes storage in session state
+    if 'analysis_notes' not in st.session_state:
+        st.session_state.analysis_notes = {}
+        # Try to load from disk
+        notes_file = Path("data/analysis_notes.json")
+        if notes_file.exists():
+            import json
+            with open(notes_file, 'r') as f:
+                st.session_state.analysis_notes = json.load(f)
+    
+    ticker = result['ticker']
+    note_key = f"{ticker}_{datetime.now().strftime('%Y%m%d')}"
+    
+    # Get existing note if any
+    existing_note = st.session_state.analysis_notes.get(note_key, "")
+    
+    col_note1, col_note2 = st.columns([3, 1])
+    
+    with col_note1:
+        note_text = st.text_area(
+            f"Add notes for {ticker} analysis",
+            value=existing_note,
+            height=100,
+            placeholder="e.g., Strong fundamentals but concerned about sector headwinds. Consider for portfolio if price dips below $150...",
+            help="Your personal notes are saved automatically and linked to this ticker and date"
+        )
+    
+    with col_note2:
+        st.write(" ")  # Spacing
+        st.write(" ")  # Spacing
+        if st.button("💾 Save Note", type="primary", use_container_width=True, key=f"save_note_{note_key}"):
+            st.session_state.analysis_notes[note_key] = note_text
+            # Save to disk
+            import json
+            notes_file = Path("data/analysis_notes.json")
+            notes_file.parent.mkdir(exist_ok=True)
+            with open(notes_file, 'w') as f:
+                json.dump(st.session_state.analysis_notes, f, indent=2)
+            st.success("✅ Note saved!")
+        
+        if st.button("🗑️ Clear Note", use_container_width=True, key=f"clear_note_{note_key}"):
+            if note_key in st.session_state.analysis_notes:
+                del st.session_state.analysis_notes[note_key]
+                import json
+                notes_file = Path("data/analysis_notes.json")
+                with open(notes_file, 'w') as f:
+                    json.dump(st.session_state.analysis_notes, f, indent=2)
+                st.success("✅ Note cleared!")
+                st.rerun()
+    
+    # Show historical notes for this ticker
+    ticker_notes = {k: v for k, v in st.session_state.analysis_notes.items() if k.startswith(f"{ticker}_") and v.strip()}
+    if len(ticker_notes) > 1:
+        with st.expander(f"📚 View {len(ticker_notes)} Historical Notes for {ticker}"):
+            for note_k in sorted(ticker_notes.keys(), reverse=True):
+                date_str = note_k.split('_')[1]
+                formatted_date = datetime.strptime(date_str, '%Y%m%d').strftime('%B %d, %Y')
+                st.write(f"**{formatted_date}:**")
+                st.info(ticker_notes[note_k])
+                st.markdown("---")
 
 
 def display_multiple_stock_analysis(results: list, failed_tickers: list):
@@ -1499,9 +1779,9 @@ def display_multiple_stock_analysis(results: list, failed_tickers: list):
             for ticker_name, error_msg in failed_tickers:
                 st.error(f"**{ticker_name}**: {error_msg}")
     
-    # Create summary comparison table
+    # Summary comparison
     st.markdown("---")
-    st.subheader("📊 Comparison Summary")
+    st.markdown("### 📊 Comparison")
     
     # Prepare data for comparison table
     comparison_data = []
@@ -1552,9 +1832,9 @@ def display_multiple_stock_analysis(results: list, failed_tickers: list):
         mime="text/csv"
     )
     
-    # 🆕 IMPROVEMENT #1: Visual Comparison Charts
+    # Visual comparison
     st.markdown("---")
-    st.subheader("📊 Visual Comparison")
+    st.markdown("### 📊 Charts")
     
     col1, col2 = st.columns(2)
     
@@ -1650,9 +1930,121 @@ def display_multiple_stock_analysis(results: list, failed_tickers: list):
     )
     st.plotly_chart(fig_final, use_container_width=True)
     
-    # Individual stock details in tabs
+    # Portfolio insights
     st.markdown("---")
-    st.subheader("📋 Detailed Analysis by Stock")
+    st.markdown("### 🎯 Insights")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.write("**Sector Diversification**")
+        
+        # Calculate sector distribution
+        sector_counts = {}
+        sector_scores = {}
+        for result in results:
+            sector = result['fundamentals'].get('sector', 'Unknown')
+            sector_counts[sector] = sector_counts.get(sector, 0) + 1
+            if sector not in sector_scores:
+                sector_scores[sector] = []
+            sector_scores[sector].append(result['final_score'])
+        
+        # Create pie chart
+        fig_sector = go.Figure(data=[go.Pie(
+            labels=list(sector_counts.keys()),
+            values=list(sector_counts.values()),
+            hole=.3,
+            textinfo='label+percent',
+            marker=dict(colors=px.colors.qualitative.Set3)
+        )])
+        
+        fig_sector.update_layout(height=350, showlegend=True)
+        st.plotly_chart(fig_sector, use_container_width=True)
+        
+        # Sector concentration warning
+        max_sector_pct = max(sector_counts.values()) / len(results) * 100
+        if max_sector_pct > 40:
+            st.warning(f"⚠️ High concentration: {max_sector_pct:.0f}% in one sector")
+        elif max_sector_pct > 30:
+            st.info(f"ℹ️ Moderate concentration: {max_sector_pct:.0f}% in one sector")
+        else:
+            st.success(f"✅ Well diversified: Max {max_sector_pct:.0f}% in any sector")
+    
+    with col2:
+        st.write("**Risk Distribution Matrix**")
+        
+        # Create risk/score scatter plot
+        risk_scores = [r['agent_scores'].get('risk_agent', 50) for r in results]
+        final_scores = [r['final_score'] for r in results]
+        tickers = [r['ticker'] for r in results]
+        market_caps = [r['fundamentals'].get('market_cap', 0) for r in results]
+        
+        fig_risk = go.Figure()
+        
+        fig_risk.add_trace(go.Scatter(
+            x=risk_scores,
+            y=final_scores,
+            mode='markers+text',
+            text=tickers,
+            textposition='top center',
+            marker=dict(
+                size=[max(10, min(30, mc/1e10)) for mc in market_caps],  # Size by market cap
+                color=final_scores,
+                colorscale='RdYlGn',
+                showscale=True,
+                colorbar=dict(title="Score")
+            ),
+            hovertemplate='<b>%{text}</b><br>Risk: %{x:.1f}<br>Score: %{y:.1f}<extra></extra>'
+        ))
+        
+        # Add quadrant lines
+        fig_risk.add_hline(y=70, line_dash="dash", line_color="gray", opacity=0.5)
+        fig_risk.add_vline(x=70, line_dash="dash", line_color="gray", opacity=0.5)
+        
+        # Add quadrant labels
+        fig_risk.add_annotation(x=85, y=85, text="High Score<br>Low Risk", showarrow=False, opacity=0.5)
+        fig_risk.add_annotation(x=55, y=85, text="High Score<br>High Risk", showarrow=False, opacity=0.5)
+        fig_risk.add_annotation(x=85, y=55, text="Low Score<br>Low Risk", showarrow=False, opacity=0.5)
+        fig_risk.add_annotation(x=55, y=55, text="Low Score<br>High Risk", showarrow=False, opacity=0.5)
+        
+        fig_risk.update_layout(
+            xaxis_title="Risk Score (Higher = Safer)",
+            yaxis_title="Final Score",
+            xaxis_range=[0, 100],
+            yaxis_range=[0, 100],
+            height=350
+        )
+        st.plotly_chart(fig_risk, use_container_width=True)
+        
+        # Risk summary
+        high_risk_count = sum(1 for r in risk_scores if r < 50)
+        if high_risk_count > len(results) * 0.5:
+            st.warning(f"⚠️ {high_risk_count}/{len(results)} stocks are high risk")
+        else:
+            st.success(f"✅ Balanced risk: {high_risk_count}/{len(results)} high risk stocks")
+    
+    # Sector performance breakdown
+    st.write("**Sector Performance Summary**")
+    sector_summary = []
+    for sector, scores in sector_scores.items():
+        sector_summary.append({
+            'Sector': sector,
+            'Count': len(scores),
+            'Avg Score': sum(scores) / len(scores),
+            'Max Score': max(scores),
+            'Min Score': min(scores)
+        })
+    
+    sector_df = pd.DataFrame(sector_summary).sort_values('Avg Score', ascending=False)
+    sector_df['Avg Score'] = sector_df['Avg Score'].round(1)
+    sector_df['Max Score'] = sector_df['Max Score'].round(1)
+    sector_df['Min Score'] = sector_df['Min Score'].round(1)
+    
+    st.dataframe(sector_df, use_container_width=True, hide_index=True)
+    
+    # Individual stock details
+    st.markdown("---")
+    st.markdown("### 📋 Stock Details")
     
     tabs = st.tabs([result['ticker'] for result in results])
     
@@ -1872,9 +2264,170 @@ def display_enhanced_agent_rationales(result: dict):
                     for key, value in agent_context.items():
                         if value is not None:
                             st.write(f"• **{key}**: {value}")
+    
+    # Client Fit Analysis (single section at the bottom)
+    st.write("---")
+    with st.expander("🎯 Client Fit Analysis", expanded=False):
+        # Get ticker from result data
+        ticker = result.get('ticker', result.get('symbol', 'UNKNOWN'))
+        client_fit = analyze_client_fit(ticker, result)
+        
+        # Overall fit indicator
+        fit_score = client_fit['fit_score']
+        overall_fit = client_fit['overall_fit']
+        
+        col1, col2 = st.columns([1, 2])
+        
+        with col1:
+            if overall_fit == 'excellent':
+                st.success(f"🎯 **Excellent Fit**\n\n{fit_score:.0f}/100")
+            elif overall_fit == 'good':
+                st.success(f"✅ **Good Fit**\n\n{fit_score:.0f}/100")
+            elif overall_fit == 'moderate':
+                st.warning(f"⚖️ **Partial Fit**\n\n{fit_score:.0f}/100")
+            elif overall_fit == 'poor':
+                st.error(f"⚠️ **Poor Fit**\n\n{fit_score:.0f}/100")
+            else:
+                st.error(f"🚫 **Incompatible**\n\n{fit_score:.0f}/100")
+        
+        with col2:
+            st.write("**Suitability Assessment:**")
+            
+            if overall_fit == 'excellent':
+                st.write("This investment aligns exceptionally well with the client's profile, restrictions, and risk tolerance.")
+            elif overall_fit == 'good':
+                st.write("This investment fits well within the client's parameters with only minor considerations.")
+            elif overall_fit == 'moderate': 
+                st.write("**Mixed suitability** - has both positive attributes and concerning aspects that require careful evaluation.")
+            elif overall_fit == 'poor':
+                st.write("This investment has **significant conflicts** with the client's investment criteria and risk profile.")
+            else:
+                st.write("This investment is **fundamentally incompatible** with the client's investment guidelines and should be avoided.")
+        
+        # Comprehensive IPS Compliance Analysis
+        st.write("**📋 Comprehensive IPS Compliance Analysis:**")
+        try:
+            analysis = generate_comprehensive_ips_compliance_analysis(ticker, result, client_fit, st.session_state.client_data)
+            
+            # Score Breakdown Section
+            st.write("**📊 Fit Score Breakdown:**")
+            score_breakdown = analysis.get('fit_score_breakdown', {})
+            base_score = score_breakdown.get('base_score', 50)
+            adjustments = score_breakdown.get('adjustments', [])
+            final_score = score_breakdown.get('final_calculated_score', client_fit.get('fit_score', 50))
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                st.metric("Base Score", f"{base_score}/100")
+            with col2:
+                total_adj = sum(adj[1] for adj in adjustments)
+                st.metric("Total Adjustments", f"{total_adj:+.0f} points", delta=total_adj)
+            
+            # Show individual adjustments
+            if adjustments:
+                st.write("**Adjustment Details:**")
+                for factor, impact in adjustments:
+                    if impact > 0:
+                        st.success(f"✅ {factor}: +{impact} points")
+                    else:
+                        st.error(f"❌ {factor}: {impact} points")
+            
+            # IPS Compliance Details
+            ips_compliance = analysis.get('ips_compliance_detailed', {})
+            
+            # Fully Compliant Items
+            fully_compliant = ips_compliance.get('fully_compliant', [])
+            if fully_compliant:
+                st.write("**✅ Fully IPS Compliant:**")
+                for item in fully_compliant:
+                    st.success(f"**{item['constraint']}**: {item['compliance']}")
+                    if 'benefit' in item:
+                        st.write(f"   💡 {item['benefit']}")
+            
+            # Partially Compliant Items
+            partially_compliant = ips_compliance.get('partially_compliant', [])
+            if partially_compliant:
+                st.write("**⚖️ Partially Compliant (With Conditions):**")
+                for item in partially_compliant:
+                    st.warning(f"**{item['constraint']}**: {item['status']}")
+                    if 'conditions' in item:
+                        st.write(f"   📋 Conditions: {item['conditions']}")
+            
+            # Requires Attention Items
+            requires_attention = ips_compliance.get('requires_attention', [])
+            if requires_attention:
+                st.write("**⚠️ Requires Attention:**")
+                for item in requires_attention:
+                    st.warning(f"**{item['constraint']}**: {item['concern']}")
+                    if 'mitigation' in item:
+                        st.write(f"   🔧 Mitigation: {item['mitigation']}")
+            
+            # Non-Compliant Items (Major Issues)
+            non_compliant = ips_compliance.get('non_compliant', [])
+            if non_compliant:
+                st.write("**❌ IPS Violations (Non-Compliant):**")
+                for item in non_compliant:
+                    st.error(f"**{item['constraint']}**: {item['violation']}")
+                    st.write(f"   🚨 Impact: {item['impact']}")
+            
+            # Investment Constraints Analysis
+            constraints = analysis.get('investment_constraints_analysis', {})
+            if constraints:
+                st.write("**📏 Investment Constraints:**")
+                for constraint_type, details in constraints.items():
+                    if isinstance(details, dict):
+                        st.write(f"**{constraint_type.replace('_', ' ').title()}:**")
+                        for key, value in details.items():
+                            st.write(f"   • {key.replace('_', ' ').title()}: {value}")
+            
+            # Score Explanation
+            score_explanation = analysis.get('score_explanation', {})
+            if score_explanation:
+                st.write("**🔍 Score Explanation:**")
+                
+                if 'why_this_score' in score_explanation:
+                    st.info(score_explanation['why_this_score'])
+                
+                if 'why_not_higher' in score_explanation:
+                    st.write("**Why the score isn't higher:**")
+                    for reason in score_explanation['why_not_higher']:
+                        st.write(f"   • {reason}")
+                
+                if 'why_not_lower' in score_explanation:
+                    st.write("**Why the score isn't lower:**")
+                    for reason in score_explanation['why_not_lower']:
+                        st.write(f"   • {reason}")
+                
+                if 'key_factors' in score_explanation:
+                    st.write("**Key factors affecting the score:**")
+                    for factor in score_explanation['key_factors']:
+                        st.write(f"   • {factor}")
+            
+            # Final Recommendation
+            recommendation = analysis.get('recommendation_rationale', 'Assessment incomplete')
+            st.write("**🎯 Final Investment Recommendation:**")
+            
+            if 'NOT SUITABLE' in recommendation:
+                st.error(f"🚫 {recommendation}")
+            elif 'PROCEED WITH CAUTION' in recommendation:
+                st.warning(f"⚠️ {recommendation}")
+            elif 'SUITABLE' in recommendation:
+                st.success(f"✅ {recommendation}")
+            elif 'CONDITIONALLY SUITABLE' in recommendation:
+                st.warning(f"⚖️ {recommendation}")
+            else:
+                st.error(f"❌ {recommendation}")
+                
+        except Exception as e:
+            st.error(f"Error generating comprehensive IPS analysis: {str(e)}")
+            st.write("**Debug Info:**")
+            st.write(f"Client data available: {st.session_state.client_data is not None}")
+            st.write(f"Client fit data: {client_fit}")
+            import traceback
+            st.code(traceback.format_exc())
 
 
-def analyze_client_fit(ticker: str, result: dict, client_data: dict = None) -> dict:  # type: ignore
+def analyze_client_fit(ticker: str, result: dict, client_data: dict | None = None) -> dict:
     """
     Analyze how well a stock fits the client's investment restrictions and preferences using
     advanced LLM analysis with complete client profile and all agent scores and rationales.
@@ -2254,7 +2807,7 @@ def _generate_fallback_client_fit_analysis(
     return fit_analysis
 
 
-def generate_comprehensive_ips_compliance_analysis(ticker: str, result: dict, client_fit: dict, client_data: dict = None) -> dict:  # type: ignore
+def generate_comprehensive_ips_compliance_analysis(ticker: str, result: dict, client_fit: dict, client_data: dict | None = None) -> dict:
     """Generate comprehensive IPS compliance analysis with detailed score breakdown and specific rationale."""
     
     if not client_data:
@@ -3110,7 +3663,7 @@ Focus on high-quality companies with strong fundamentals and growth potential.""
                         if isinstance(analysis, dict):
                             ticker = analysis.get('ticker', 'unknown')
                         elif hasattr(analysis, 'ticker'):
-                            ticker = analysis.ticker  # type: ignore
+                            ticker = analysis.ticker
                         st.warning(f"Failed to log {ticker} to QA archive: {e}")
                 
                 status_text.text(f"✅ Logged {len(all_analyses)} analyses to QA archive")
@@ -3416,10 +3969,14 @@ def display_portfolio_recommendations(result: dict):
 # Backtesting functionality removed as requested
 
 
-def parse_client_profile_with_ai(client_profile_text: str) -> dict:
+def parse_client_profile_with_ai(client_profile_text: str) -> dict | None:
     """Use OpenAI to parse client profile text into structured IPS.""" 
-    from openai import OpenAI
     import os
+    
+    # Check if OpenAI is available
+    if OpenAI is None:
+        st.error("OpenAI library not installed. Cannot parse client profile with AI.")
+        return parse_client_profile_fallback(client_profile_text)
     
     # Check if OpenAI key is available
     if not os.getenv('OPENAI_API_KEY'):
@@ -3475,16 +4032,13 @@ Use reasonable defaults if information is missing. Be conservative with risk set
         
         import json
         response_content = response.choices[0].message.content
+        
+        # Check if response is empty or None
         if not response_content:
             st.error("AI parsing error: Empty response from OpenAI")
-            return {}
+            return None
         
         response_content = response_content.strip()
-        
-        # Check if response is empty
-        if not response_content:
-            st.error("AI parsing error: Empty response from OpenAI")
-            return {}
         
         # Try to extract JSON from response (in case there's extra text)
         json_start = response_content.find('{')
@@ -3493,7 +4047,7 @@ Use reasonable defaults if information is missing. Be conservative with risk set
         if json_start == -1 or json_end <= json_start:
             st.error(f"AI parsing error: No valid JSON found in response")
             st.code(f"Response received: {response_content[:200]}...")
-            return {}
+            return None
         
         json_content = response_content[json_start:json_end]
         
@@ -3502,12 +4056,12 @@ Use reasonable defaults if information is missing. Be conservative with risk set
         except json.JSONDecodeError as json_error:
             st.error(f"AI parsing error: Invalid JSON format - {json_error}")
             st.code(f"JSON content: {json_content[:200]}...")
-            return {}
+            return None
         
         # Validate that we got the expected structure
         if not isinstance(parsed_data, dict):
             st.error("AI parsing error: Response is not a JSON object")
-            return {}
+            return None
         
         # Merge with default IPS structure
         default_ips = st.session_state.config_loader.load_ips()
@@ -3658,6 +4212,2083 @@ def display_backtest_results(results: dict):
     )
 
 
+def portfolio_management_page():
+    """Portfolio Management page - smart allocation analysis using existing QA archives."""
+    st.header("📊 Portfolio Management")
+    st.write("Analyze your current portfolio and get smart allocation recommendations using existing analysis archives.")
+    st.markdown("---")
+    
+    # Portfolio Storage Functions
+    def save_portfolio(portfolio_name, holdings):
+        """Save portfolio to local storage."""
+        portfolio_file = "data/saved_portfolios.json"
+        os.makedirs("data", exist_ok=True)
+        
+        try:
+            if os.path.exists(portfolio_file):
+                with open(portfolio_file, 'r') as f:
+                    saved_portfolios = json.load(f)
+            else:
+                saved_portfolios = {}
+            
+            saved_portfolios[portfolio_name] = {
+                'holdings': holdings,
+                'last_updated': datetime.now().isoformat()
+            }
+            
+            with open(portfolio_file, 'w') as f:
+                json.dump(saved_portfolios, f, indent=2)
+            
+            return True
+        except Exception as e:
+            st.error(f"Error saving portfolio: {e}")
+            return False
+    
+    def load_saved_portfolios():
+        """Load saved portfolios from local storage."""
+        portfolio_file = "data/saved_portfolios.json"
+        try:
+            if os.path.exists(portfolio_file):
+                with open(portfolio_file, 'r') as f:
+                    return json.load(f)
+            return {}
+        except Exception as e:
+            st.error(f"Error loading portfolios: {e}")
+            return {}
+    
+    def map_to_broad_sector(sector_string):
+        """Map specific sector/industry names to broad sector categories."""
+        if not sector_string:
+            return 'Unknown'
+        
+        sector_lower = sector_string.lower()
+        
+        # Technology & Software
+        if any(term in sector_lower for term in [
+            'technology', 'software', 'tech', 'semiconductor', 'chip', 'hardware',
+            'electronic', 'connector', 'component', 'circuit', 'computer', 'internet', 
+            'cloud', 'cyber', 'ai', 'artificial intelligence', 'data', 'it services', 
+            'telecom equipment', 'networking', 'storage', 'processor', 'digital',
+            'automation', 'robotics', 'iot', 'sensor', 'microchip', 'integrated circuit'
+        ]):
+            return 'Technology'
+        
+        # Healthcare & Pharma
+        if any(term in sector_lower for term in [
+            'healthcare', 'health', 'pharmaceutical', 'pharma', 'biotech', 'medical',
+            'drug', 'hospital', 'insurance', 'managed care', 'life sciences', 'diagnostic'
+        ]):
+            return 'Healthcare'
+        
+        # Financial Services
+        if any(term in sector_lower for term in [
+            'financ', 'bank', 'insurance', 'investment', 'capital', 'asset management',
+            'wealth', 'credit', 'lending', 'mortgage', 'securities', 'brokerage', 'fintech'
+        ]):
+            return 'Finance'
+        
+        # Consumer (Discretionary & Staples)
+        if any(term in sector_lower for term in [
+            'consumer', 'retail', 'restaurant', 'hotel', 'leisure', 'entertainment',
+            'media', 'apparel', 'automotive', 'auto', 'food', 'beverage', 'household',
+            'personal products', 'e-commerce', 'luxury', 'gaming'
+        ]):
+            return 'Consumer'
+        
+        # Industrials & Manufacturing
+        if any(term in sector_lower for term in [
+            'industrial', 'manufactur', 'aerospace', 'defense', 'construction',
+            'machinery', 'equipment', 'transport', 'logistics', 'shipping', 'airlines',
+            'rail', 'engineering', 'building'
+        ]):
+            return 'Industrials'
+        
+        # Energy & Utilities
+        if any(term in sector_lower for term in [
+            'energy', 'oil', 'gas', 'petroleum', 'renewable', 'solar', 'wind',
+            'utility', 'utilities', 'electric', 'power', 'coal', 'nuclear'
+        ]):
+            return 'Energy'
+        
+        # Real Estate
+        if any(term in sector_lower for term in [
+            'real estate', 'reit', 'property', 'realty', 'commercial real estate',
+            'residential', 'office', 'warehouse', 'data center'
+        ]):
+            return 'Real Estate'
+        
+        # Materials & Chemicals
+        if any(term in sector_lower for term in [
+            'materials', 'chemical', 'mining', 'metal', 'steel', 'aluminum',
+            'copper', 'paper', 'packaging', 'commodity', 'resources'
+        ]):
+            return 'Materials'
+        
+        # Communication Services
+        if any(term in sector_lower for term in [
+            'communication', 'telecom', 'wireless', 'cable', 'satellite',
+            'broadcasting', 'social media', 'advertising'
+        ]):
+            return 'Communication Services'
+        
+        # If no match, return original but capitalized
+        return sector_string.title()
+    
+    def get_latest_analysis_for_ticker(qa_system, ticker):
+        """Get the latest analysis for a specific ticker."""
+        try:
+            archive = qa_system.get_analysis_archive()
+            if ticker in archive and archive[ticker]:
+                latest = archive[ticker][0]  # First item is most recent
+                
+                # Map specific sector to broad category
+                original_sector = latest.sector if latest.sector else 'Unknown'
+                broad_sector = map_to_broad_sector(original_sector)
+                
+                return {
+                    'timestamp': latest.timestamp.strftime('%Y-%m-%d %H:%M'),
+                    'recommendation': latest.recommendation.value if hasattr(latest.recommendation, 'value') else str(latest.recommendation),
+                    'price_target': latest.expected_target_price,
+                    'confidence': latest.confidence_score,
+                    'rationale': latest.final_rationale,
+                    'key_points': latest.key_factors,
+                    'sectors': [broad_sector],
+                    'original_sector': original_sector  # Keep original for reference
+                }
+            return None
+        except Exception as e:
+            st.error(f"Error getting analysis for {ticker}: {e}")
+            return None
+    
+    # Portfolio Input Section
+    with st.container():
+        st.subheader("💼 Current Portfolio")
+        
+        # Initialize portfolio in session state
+        if 'portfolio_holdings' not in st.session_state:
+            st.session_state.portfolio_holdings = {}
+        
+        # Portfolio Management Controls
+        col1, col2, col3 = st.columns([2, 1, 1])
+        
+        with col1:
+            # Load saved portfolios
+            saved_portfolios = load_saved_portfolios()
+            if saved_portfolios:
+                selected_portfolio = st.selectbox(
+                    "Load Saved Portfolio:",
+                    [""] + list(saved_portfolios.keys()),
+                    help="Select a previously saved portfolio"
+                )
+                
+                if selected_portfolio and st.button("📂 Load Portfolio"):
+                    st.session_state.portfolio_holdings = saved_portfolios[selected_portfolio]['holdings']
+                    st.success(f"Loaded portfolio: {selected_portfolio}")
+                    st.rerun()
+        
+        with col2:
+            # Save current portfolio
+            if st.session_state.portfolio_holdings:
+                save_name = st.text_input("Portfolio Name:", placeholder="My Portfolio")
+                if st.button("💾 Save Portfolio") and save_name:
+                    if save_portfolio(save_name, st.session_state.portfolio_holdings):
+                        st.success(f"Saved: {save_name}")
+        
+        with col3:
+            # Clear portfolio button
+            if st.session_state.portfolio_holdings and st.button("🗑️ Clear Portfolio"):
+                st.session_state.portfolio_holdings = {}
+                st.rerun()
+        
+        col1, col2 = st.columns([2, 1])
+        
+        with col1:
+            # Input method selection
+            input_method = st.radio(
+                "Portfolio Input Method:",
+                ["Manual Entry", "Upload CSV"],
+                horizontal=True
+            )
+            
+            if input_method == "Manual Entry":
+                with st.form("portfolio_entry"):
+                    st.write("**Add Holdings:**")
+                    ticker_input = st.text_input("Stock Ticker", placeholder="e.g., AAPL").upper()
+                    allocation_input = st.number_input("Allocation %", min_value=0.0, max_value=100.0, step=0.1)
+                    
+                    if st.form_submit_button("Add to Portfolio"):
+                        if ticker_input and allocation_input > 0:
+                            st.session_state.portfolio_holdings[ticker_input] = allocation_input
+                            st.success(f"Added {ticker_input}: {allocation_input}%")
+                        else:
+                            st.error("Please enter valid ticker and allocation")
+            
+            else:  # CSV Upload
+                uploaded_file = st.file_uploader(
+                    "Upload Portfolio CSV (Ticker, Allocation%)",
+                    type=['csv'],
+                    help="CSV should have columns: Ticker, Allocation"
+                )
+                
+                if uploaded_file:
+                    try:
+                        df = pd.read_csv(uploaded_file)
+                        if 'Ticker' in df.columns and 'Allocation' in df.columns:
+                            for _, row in df.iterrows():
+                                st.session_state.portfolio_holdings[row['Ticker'].upper()] = float(row['Allocation'])
+                            st.success(f"Loaded {len(df)} holdings from CSV")
+                        else:
+                            st.error("CSV must have 'Ticker' and 'Allocation' columns")
+                    except Exception as e:
+                        st.error(f"Error reading CSV: {e}")
+        
+        with col2:
+            st.write("**Analysis Mode:**")
+            analysis_mode = st.selectbox(
+                "Choose Analysis Mode:",
+                ["Client Fit Analysis", "Custom Specifications"],
+                help="Client Fit uses predetermined risk profiles, Custom allows detailed specifications"
+            )
+            
+            # Initialize variables with defaults
+            client_profile = None
+            target_sectors = []
+            risk_tolerance = 5
+            growth_focus = 5
+            
+            if analysis_mode == "Client Fit Analysis":
+                client_profile = st.selectbox(
+                    "Client Risk Profile:",
+                    ["Conservative", "Moderate", "Aggressive", "Growth-Focused"],
+                    help="Predetermined allocation strategies based on risk tolerance"
+                )
+            else:
+                st.write("**Custom Parameters:**")
+                target_sectors = st.multiselect(
+                    "Preferred Sectors:",
+                    ["Technology", "Healthcare", "Finance", "Consumer", "Energy", "Real Estate", "Utilities"]
+                )
+                risk_tolerance = st.slider("Risk Tolerance", 1, 10, 5)
+                growth_focus = st.slider("Growth vs Value", 1, 10, 5, help="1=Value focused, 10=Growth focused")
+    
+    # Display Current Portfolio
+    if st.session_state.portfolio_holdings:
+        st.subheader("📈 Current Holdings")
+        
+        portfolio_df = pd.DataFrame([
+            {"Ticker": ticker, "Allocation %": allocation}
+            for ticker, allocation in st.session_state.portfolio_holdings.items()
+        ])
+        
+        col1, col2 = st.columns([2, 1])
+        with col1:
+            st.dataframe(portfolio_df, use_container_width=True)
+        
+        with col2:
+            total_allocation = sum(st.session_state.portfolio_holdings.values())
+            st.metric("Total Allocation", f"{total_allocation:.1f}%")
+            
+            if total_allocation != 100:
+                st.warning(f"Portfolio not fully allocated ({100-total_allocation:.1f}% remaining)")
+            else:
+                st.success("Portfolio fully allocated ✓")
+    
+    # Analysis Section
+    if st.session_state.portfolio_holdings and st.button("🔍 Analyze Portfolio", type="primary"):
+        with st.spinner("Analyzing portfolio using existing archives..."):
+            
+            # Load QA system if not already loaded
+            if not st.session_state.qa_system:
+                st.session_state.qa_system = QASystem()
+            
+            qa_system = st.session_state.qa_system
+            
+            # Get archive data for current holdings
+            portfolio_analysis = {}
+            missing_analysis = []
+            
+            for ticker in st.session_state.portfolio_holdings.keys():
+                archive_data = get_latest_analysis_for_ticker(qa_system, ticker)
+                if archive_data:
+                    portfolio_analysis[ticker] = archive_data
+                else:
+                    missing_analysis.append(ticker)
+            
+            # Perform deep portfolio analysis
+            deep_analysis = perform_deep_portfolio_analysis(
+                st.session_state.portfolio_holdings,
+                portfolio_analysis,
+                analysis_mode,
+                client_profile if analysis_mode == "Client Fit Analysis" else None,
+                target_sectors if analysis_mode == "Custom Specifications" else [],
+                risk_tolerance,
+                growth_focus
+            )
+            
+            # Display Analysis Results
+            st.subheader("📊 Comprehensive Portfolio Analysis")
+            
+            if portfolio_analysis:
+                # Create tabs for different analysis views
+                # Consolidated from 8 to 5 tabs for better UX and performance
+                tab1, tab2, tab3, tab4, tab5 = st.tabs(["Overview", "Holdings & Risk", "Recommendations", "News & Events", "Optimization"])
+                
+                with tab1:
+                    st.write("### 📊 Portfolio Overview & Key Metrics")
+                    
+                    # Top-level metrics
+                    col1, col2, col3, col4 = st.columns(4)
+                    with col1:
+                        st.metric("Total Holdings", len(st.session_state.portfolio_holdings))
+                    with col2:
+                        avg_confidence = sum(a.get('confidence', 0) for a in portfolio_analysis.values()) / len(portfolio_analysis) if portfolio_analysis else 0
+                        st.metric("Avg Confidence", f"{avg_confidence:.1f}%")
+                    with col3:
+                        st.metric("Sectors Covered", len(deep_analysis['sectors']))
+                    with col4:
+                        st.metric("Risk Score", f"{deep_analysis['risk_score']:.1f}/10")
+                    
+                    st.markdown("---")
+                    
+                    # Portfolio composition
+                    st.write("**Portfolio Composition:**")
+                    composition_df = pd.DataFrame([
+                        {
+                            "Ticker": ticker,
+                            "Allocation %": allocation,
+                            "Recommendation": portfolio_analysis[ticker].get('recommendation', 'N/A'),
+                            "Confidence": f"{portfolio_analysis[ticker].get('confidence', 0):.0f}%",
+                            "Sector": ', '.join(portfolio_analysis[ticker].get('sectors', ['Unknown']))[:30]
+                        }
+                        for ticker, allocation in st.session_state.portfolio_holdings.items()
+                        if ticker in portfolio_analysis
+                    ])
+                    st.dataframe(composition_df, use_container_width=True)
+                    
+                    # Allocation visualization
+                    st.write("**Allocation Breakdown:**")
+                    fig = px.pie(
+                        values=list(st.session_state.portfolio_holdings.values()),
+                        names=list(st.session_state.portfolio_holdings.keys()),
+                        title="Portfolio Allocation by Stock"
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+                    
+                    # Sector allocation
+                    if deep_analysis['sector_allocation']:
+                        st.write("**Sector Allocation:**")
+                        sector_fig = px.pie(
+                            values=list(deep_analysis['sector_allocation'].values()),
+                            names=list(deep_analysis['sector_allocation'].keys()),
+                            title="Portfolio Allocation by Sector"
+                        )
+                        st.plotly_chart(sector_fig, use_container_width=True)
+                    
+                    # Key insights
+                    st.write("**Key Portfolio Insights:**")
+                    for insight in deep_analysis['key_insights']:
+                        st.info(f"💡 {insight}")
+                
+                with tab2:
+                    st.write("### 🔍 Deep Dive: Individual Holdings Analysis")
+                    
+                    for ticker, analysis in portfolio_analysis.items():
+                        allocation = st.session_state.portfolio_holdings[ticker]
+                        
+                        with st.expander(f"**{ticker}** - {allocation}% allocation ({deep_analysis['holding_ratings'].get(ticker, 'Unknown')} positioning)", expanded=False):
+                            # Header metrics
+                            col1, col2, col3, col4 = st.columns(4)
+                            with col1:
+                                st.metric("Recommendation", analysis.get('recommendation', 'N/A'))
+                            with col2:
+                                st.metric("Confidence", f"{analysis.get('confidence', 0):.0f}%")
+                            with col3:
+                                if 'price_target' in analysis and analysis['price_target']:
+                                    st.metric("Price Target", f"${analysis['price_target']:.2f}")
+                            with col4:
+                                st.metric("Analysis Date", analysis.get('timestamp', 'Unknown')[:10])
+                            
+                            st.markdown("---")
+                            
+                            # Detailed analysis
+                            col1, col2 = st.columns([1, 1])
+                            
+                            with col1:
+                                st.write("**📋 Full Rationale:**")
+                                if 'rationale' in analysis and analysis['rationale']:
+                                    st.write(analysis['rationale'])
+                                else:
+                                    st.write("No detailed rationale available.")
+                                
+                                st.write("**🎯 Key Investment Points:**")
+                                if 'key_points' in analysis and analysis['key_points']:
+                                    for i, point in enumerate(analysis['key_points'], 1):
+                                        st.write(f"{i}. {point}")
+                                else:
+                                    st.write("No key points available.")
+                            
+                            with col2:
+                                st.write("**📊 Position Context:**")
+                                st.write(f"• **Portfolio Weight:** {allocation}% ({deep_analysis['holding_ratings'].get(ticker, 'Unknown')} position)")
+                                
+                                # Show broad sector and original industry if different
+                                broad_sector = ', '.join(analysis.get('sectors', ['Unknown']))
+                                original_sector = analysis.get('original_sector', '')
+                                if original_sector and original_sector != broad_sector and original_sector != 'Unknown':
+                                    st.write(f"• **Sector:** {broad_sector} ({original_sector})")
+                                else:
+                                    st.write(f"• **Sector:** {broad_sector}")
+                                
+                                # Calculate potential impact
+                                if 'price_target' in analysis and analysis['price_target']:
+                                    upside = ((analysis['price_target'] / 100) - 1) * 100  # Simplified calculation
+                                    portfolio_impact = (allocation / 100) * upside
+                                    st.write(f"• **Potential Upside:** ~{upside:.1f}%")
+                                    st.write(f"• **Portfolio Impact:** ~{portfolio_impact:.2f}%")
+                                
+                                st.write("**🔍 Role in Portfolio:**")
+                                role = deep_analysis['holding_roles'].get(ticker, "Balanced position contributing to diversification")
+                                st.write(role)
+                            
+                            st.markdown("---")
+                            
+                            # Risk assessment for this holding
+                            st.write("**⚠️ Individual Risk Assessment:**")
+                            risk_factors = deep_analysis['individual_risks'].get(ticker, ["Standard market risk applies"])
+                            for factor in risk_factors:
+                                st.write(f"• {factor}")
+                
+                with tab3:
+                    st.write("### ⚖️ Portfolio Risk Analysis")
+                    
+                    # Overall risk metrics
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.metric("Overall Risk Score", f"{deep_analysis['risk_score']:.1f}/10", 
+                                 help="Based on diversification, concentration, and volatility factors")
+                    with col2:
+                        st.metric("Diversification Score", f"{deep_analysis['diversification_score']:.1f}/10",
+                                 help="Higher is better - measures spread across sectors and positions")
+                    with col3:
+                        st.metric("Concentration Risk", deep_analysis['concentration_level'],
+                                 help="Measures if portfolio is too heavily weighted in few positions")
+                    
+                    st.markdown("---")
+                    
+                    # Risk breakdown
+                    st.write("**📊 Risk Factor Breakdown:**")
+                    
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        st.write("**Concentration Analysis:**")
+                        for risk in deep_analysis['concentration_risks']:
+                            st.warning(f"⚠️ {risk}")
+                        
+                        if not deep_analysis['concentration_risks']:
+                            st.success("✅ No significant concentration risks detected")
+                        
+                        st.write("**Position Sizing:**")
+                        for ticker, allocation in sorted(st.session_state.portfolio_holdings.items(), 
+                                                        key=lambda x: x[1], reverse=True):
+                            risk_level = "🔴 High" if allocation > 20 else "🟡 Medium" if allocation > 10 else "🟢 Low"
+                            st.write(f"• {ticker}: {allocation}% - {risk_level}")
+                    
+                    with col2:
+                        st.write("**Sector Risk Exposure:**")
+                        for sector, alloc in sorted(deep_analysis['sector_allocation'].items(), 
+                                                   key=lambda x: x[1], reverse=True):
+                            risk_level = "🔴 High" if alloc > 40 else "🟡 Medium" if alloc > 25 else "🟢 Low"
+                            st.write(f"• {sector}: {alloc:.1f}% - {risk_level}")
+                        
+                        st.write("**Portfolio-Level Risks:**")
+                        for risk in deep_analysis['portfolio_risks']:
+                            st.warning(f"⚠️ {risk}")
+                        
+                        if not deep_analysis['portfolio_risks']:
+                            st.success("✅ Portfolio structure appears sound")
+                    
+                    st.markdown("---")
+                    
+                    # Risk mitigation suggestions
+                    st.write("**🛡️ Risk Mitigation Strategies:**")
+                    for strategy in deep_analysis['risk_mitigation']:
+                        st.info(f"💡 {strategy}")
+                
+                with tab4:
+                    st.write("### 🎯 Sector Analysis & Diversification")
+                    
+                    # Sector breakdown
+                    st.write("**Sector Diversification Analysis:**")
+                    
+                    col1, col2 = st.columns([1, 1])
+                    
+                    with col1:
+                        st.write("**Current Sector Allocation:**")
+                        sector_df = pd.DataFrame([
+                            {"Sector": sector, "Allocation %": f"{alloc:.1f}%", "Holdings": count}
+                            for sector, (alloc, count) in deep_analysis['sector_details'].items()
+                        ]).sort_values("Allocation %", ascending=False)
+                        st.dataframe(sector_df, use_container_width=True)
+                        
+                        st.write("**Diversification Quality:**")
+                        st.metric("Sector Diversity Score", f"{deep_analysis['sector_diversity_score']:.1f}/10")
+                        
+                        if deep_analysis['diversification_score'] >= 7:
+                            st.success("✅ Well-diversified across sectors")
+                        elif deep_analysis['diversification_score'] >= 5:
+                            st.warning("⚠️ Moderate diversification - consider broadening")
+                        else:
+                            st.error("🔴 Limited diversification - high sector concentration risk")
+                    
+                    with col2:
+                        st.write("**Missing/Underrepresented Sectors:**")
+                        for sector in deep_analysis['missing_sectors']:
+                            st.write(f"• **{sector}** - Not represented in portfolio")
+                        
+                        for sector, reason in deep_analysis['underweight_sectors'].items():
+                            st.write(f"• **{sector}** - Underweight: {reason}")
+                        
+                        if not deep_analysis['missing_sectors'] and not deep_analysis['underweight_sectors']:
+                            st.success("✅ Good sector coverage")
+                    
+                    st.markdown("---")
+                    
+                    # Correlation analysis
+                    st.write("**📊 Correlation & Overlap Analysis:**")
+                    st.write(deep_analysis['correlation_analysis'])
+                
+                with tab5:
+                    st.write("### 💡 Smart Allocation Recommendations")
+                    
+                    # Overall assessment
+                    if deep_analysis['overall_quality'] == 'Excellent':
+                        st.success(f"✅ **Portfolio Quality: {deep_analysis['overall_quality']}**")
+                    elif deep_analysis['overall_quality'] == 'Good':
+                        st.info(f"👍 **Portfolio Quality: {deep_analysis['overall_quality']}**")
+                    else:
+                        st.warning(f"⚠️ **Portfolio Quality: {deep_analysis['overall_quality']}**")
+                    
+                    st.write(deep_analysis['quality_explanation'])
+                    
+                    st.markdown("---")
+                    
+                    # Detailed recommendations
+                    st.write("**🎯 Specific Action Items:**")
+                    
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        st.write("**Immediate Adjustments:**")
+                        if deep_analysis['immediate_actions']:
+                            for i, action in enumerate(deep_analysis['immediate_actions'], 1):
+                                st.error(f"{i}. {action}")
+                        else:
+                            st.success("✅ No immediate adjustments needed")
+                        
+                        st.write("**Short-term Optimizations (1-3 months):**")
+                        for i, action in enumerate(deep_analysis['short_term_actions'], 1):
+                            st.warning(f"{i}. {action}")
+                    
+                    with col2:
+                        st.write("**Long-term Strategy (3-12 months):**")
+                        for i, action in enumerate(deep_analysis['long_term_actions'], 1):
+                            st.info(f"{i}. {action}")
+                        
+                        st.write("**Monitoring Priorities:**")
+                        for i, priority in enumerate(deep_analysis['monitoring_priorities'], 1):
+                            st.write(f"{i}. {priority}")
+                    
+                    st.markdown("---")
+                    
+                    # Rebalancing suggestions
+                    if deep_analysis['rebalancing_suggestions']:
+                        st.write("**⚖️ Suggested Rebalancing:**")
+                        rebal_df = pd.DataFrame(deep_analysis['rebalancing_suggestions'])
+                        st.dataframe(rebal_df, use_container_width=True)
+                
+                with tab2:  # Growth & Value merged into Holdings & Risk
+                    st.write("### 📈 Growth & Value Analysis")
+                    
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        st.write("**Growth vs Value Composition:**")
+                        st.metric("Growth Allocation", f"{deep_analysis['growth_allocation']:.1f}%")
+                        st.metric("Value Allocation", f"{deep_analysis['value_allocation']:.1f}%")
+                        st.metric("Blend Allocation", f"{deep_analysis['blend_allocation']:.1f}%")
+                        
+                        st.write("**Style Analysis:**")
+                        st.write(deep_analysis['style_analysis'])
+                    
+                    with col2:
+                        st.write("**Expected Return Profile:**")
+                        st.write(deep_analysis['return_profile'])
+                        
+                        st.write("**Investment Horizon Fit:**")
+                        st.write(deep_analysis['time_horizon_fit'])
+                        
+                        if analysis_mode == "Client Fit Analysis" and client_profile:
+                            st.write(f"**Profile Alignment ({client_profile}):**")
+                            st.write(deep_analysis['profile_alignment'])
+                    
+                    st.markdown("---")
+                    
+                    st.write("**📊 Holdings by Investment Style:**")
+                    for style, holdings in deep_analysis['holdings_by_style'].items():
+                        with st.expander(f"{style} Holdings ({len(holdings)} stocks)"):
+                            for holding in holdings:
+                                st.write(f"• {holding['ticker']}: {holding['allocation']}% - {holding['reason']}")
+                
+                with tab4:  # News & Market Context
+                    st.write("### 📰 News & Market Context Analysis")
+                    st.info("💡 Real-time analysis powered by Perplexity AI")
+                    
+                    # Analysis type selector
+                    analysis_type = st.radio(
+                        "Select Analysis Type:",
+                        ["Portfolio News", "Macro Overview", "Individual Stock"],
+                        horizontal=True
+                    )
+                    
+                    # Portfolio News Analysis (default)
+                    if analysis_type == "Portfolio News":
+                        with st.spinner("🔍 Analyzing recent news and market developments..."):
+                            if 'portfolio_news_cache' not in st.session_state:
+                                news_analysis = get_portfolio_news_analysis(
+                                    list(st.session_state.portfolio_holdings.keys()),
+                                    deep_analysis
+                                )
+                                st.session_state.portfolio_news_cache = news_analysis
+                            else:
+                                news_analysis = st.session_state.portfolio_news_cache
+                        
+                        st.markdown(news_analysis)
+                        if st.button("🔄 Refresh News", key="refresh_news"):
+                            with st.spinner("Refreshing news analysis..."):
+                                news_analysis = get_portfolio_news_analysis(
+                                    list(st.session_state.portfolio_holdings.keys()),
+                                    deep_analysis
+                                )
+                                st.session_state.portfolio_news_cache = news_analysis
+                                st.rerun()
+                    
+                    # Macro Market Overview
+                    elif analysis_type == "Macro Overview":
+                        if st.button("🌍 Analyze Macro Environment", type="primary"):
+                            with st.spinner("Analyzing global macro environment..."):
+                                macro_overview = get_macro_market_overview(deep_analysis)
+                                st.session_state.macro_overview_cache = macro_overview
+                        
+                        if 'macro_overview_cache' in st.session_state:
+                            st.markdown("#### 🌍 Macro Market Environment")
+                            st.markdown(st.session_state.macro_overview_cache)
+                    
+                    # Individual Stock Analysis
+                    elif analysis_type == "Individual Stock":
+                        selected_ticker = st.selectbox(
+                            "Select ticker for detailed analysis:",
+                            list(st.session_state.portfolio_holdings.keys()),
+                            key="news_ticker_select"
+                        )
+                        
+                        if st.button(f"� Analyze {selected_ticker}", type="primary"):
+                            with st.spinner(f"Analyzing {selected_ticker} in detail..."):
+                                ticker_news = get_individual_ticker_news_analysis(
+                                    selected_ticker,
+                                    st.session_state.portfolio_holdings[selected_ticker],
+                                    portfolio_analysis.get(selected_ticker, {})
+                                )
+                                st.session_state[f'ticker_news_{selected_ticker}'] = ticker_news
+                        
+                        # Display cached analysis
+                        if f'ticker_news_{selected_ticker}' in st.session_state:
+                            st.markdown(st.session_state[f'ticker_news_{selected_ticker}'])
+                    
+                    st.markdown("---")
+                    
+                    st.write("### � Sector-Level Market Trends")
+                    # Group holdings by sector for detailed analysis
+                    holdings_by_sector = {}
+                    for ticker, data in portfolio_analysis.items():
+                        for sector in data.get('sectors', ['Unknown']):
+                            if sector not in holdings_by_sector:
+                                holdings_by_sector[sector] = []
+                            holdings_by_sector[sector].append(ticker)
+                    
+                    for sector in deep_analysis['sectors']:
+                        sector_tickers = holdings_by_sector.get(sector, [])
+                        sector_allocation = deep_analysis['sector_allocation'].get(sector, 0)
+                        
+                        with st.expander(f"📊 {sector} - {sector_allocation:.1f}% allocation ({len(sector_tickers)} holdings)"):
+                            st.write(f"**Holdings:** {', '.join(sector_tickers)}")
+                            
+                            if st.button(f"Get Real-Time {sector} Analysis", key=f"sector_{sector}"):
+                                with st.spinner(f"Analyzing {sector} sector with Perplexity AI..."):
+                                    sector_analysis = get_sector_specific_analysis(
+                                        sector,
+                                        sector_tickers,
+                                        deep_analysis
+                                    )
+                                    st.markdown(sector_analysis)
+                            else:
+                                # Show basic trend
+                                st.write(deep_analysis['sector_trends'].get(sector, "Click button above for detailed analysis"))
+                    
+                    st.markdown("---")
+                    
+                    # Upcoming Events Calendar
+                    st.write("### 📅 Upcoming Events & Catalysts")
+                    
+                    col1, col2 = st.columns([1, 1])
+                    with col1:
+                        event_timeframe = st.selectbox("Timeframe:", ["Next 7 Days", "Next 14 Days", "Next 30 Days"], key="event_timeframe")
+                    with col2:
+                        event_format = st.selectbox("Format:", ["Detailed", "Summary Table"], key="event_format")
+                    
+                    # Initialize or update event cache in session state
+                    cache_key = f"events_{event_timeframe}_{event_format}"
+                    
+                    # Button to fetch/refresh events
+                    col1, col2 = st.columns([1, 3])
+                    with col1:
+                        fetch_events = st.button("🔍 Load Events", type="primary", key="fetch_events_btn")
+                    with col2:
+                        if cache_key in st.session_state:
+                            st.caption(f"✓ Loaded for {event_timeframe} ({event_format})")
+                        else:
+                            st.caption("👆 Click to load events")
+                    
+                    # Fetch events only when button clicked
+                    if fetch_events:
+                        try:
+                            with st.spinner(f"Scanning {event_timeframe.lower()} for portfolio events..."):
+                                upcoming_events = get_portfolio_upcoming_events(
+                                    list(st.session_state.portfolio_holdings.keys()),
+                                    event_timeframe,
+                                    deep_analysis,
+                                    event_format
+                                )
+                                st.session_state[cache_key] = upcoming_events
+                                st.success(f"✅ Events loaded for {event_timeframe}!")
+                        except Exception as e:
+                            st.error(f"Error loading events: {e}")
+                            logger.error(f"Event calendar error: {e}")
+                    
+                    # Display events if they exist in cache
+                    if cache_key in st.session_state:
+                        st.markdown(st.session_state[cache_key])
+                    else:
+                        st.info(f"� Click 'Load Events' to fetch events for {event_timeframe} ({event_format})")
+                    
+                    st.markdown("---")
+                
+                with tab5:  # Optimization
+                    st.write("### 🚀 Portfolio Optimization Suggestions")
+                    
+                    st.write("**New Position Recommendations:**")
+                    
+                    # Generate detailed suggestions
+                    suggestions = generate_detailed_portfolio_suggestions(
+                        st.session_state.portfolio_holdings,
+                        portfolio_analysis,
+                        deep_analysis,
+                        analysis_mode,
+                        client_profile if analysis_mode == "Client Fit Analysis" else None
+                    )
+                    
+                    if suggestions:
+                        for i, suggestion in enumerate(suggestions, 1):
+                            with st.expander(f"**{i}. {suggestion['ticker']}** - {suggestion['company']} ({suggestion['sector']})", expanded=i<=2):
+                                col1, col2 = st.columns([2, 1])
+                                
+                                with col1:
+                                    st.write("**Investment Thesis:**")
+                                    st.write(suggestion['detailed_rationale'])
+                                    
+                                    st.write("**Why This Stock for Your Portfolio:**")
+                                    st.write(suggestion['portfolio_fit'])
+                                    
+                                    st.write("**Key Strengths:**")
+                                    for strength in suggestion['strengths']:
+                                        st.write(f"• {strength}")
+                                    
+                                    st.write("**Considerations:**")
+                                    for consideration in suggestion['considerations']:
+                                        st.write(f"• {consideration}")
+                                
+                                with col2:
+                                    st.metric("Suggested Allocation", f"{suggestion['suggested_allocation']}%")
+                                    st.metric("Priority Level", suggestion['priority'])
+                                    st.metric("Risk Level", suggestion['risk_level'])
+                                    st.metric("Expected Timeline", suggestion['timeline'])
+                                    
+                                    st.write("**Fills Gap:**")
+                                    st.write(suggestion['fills_gap'])
+                    
+                    st.markdown("---")
+                    
+                    st.write("**Exit/Trim Considerations:**")
+                    if deep_analysis['trim_candidates']:
+                        for candidate in deep_analysis['trim_candidates']:
+                            st.warning(f"⚠️ **{candidate['ticker']}**: {candidate['reason']}")
+                    else:
+                        st.success("✅ No immediate trim candidates identified")
+                    
+                    st.markdown("---")
+                    
+                    st.write("**Alternative Scenarios:**")
+                    for scenario in deep_analysis['alternative_scenarios']:
+                        with st.expander(f"Scenario: {scenario['name']}"):
+                            st.write(f"**Objective:** {scenario['objective']}")
+                            st.write(f"**Approach:** {scenario['approach']}")
+                            st.write("**Suggested Changes:**")
+                            for change in scenario['changes']:
+                                st.write(f"• {change}")
+            
+            # Handle missing analysis
+            if missing_analysis:
+                st.warning(f"⚠️ Missing analysis for: {', '.join(missing_analysis)}")
+                st.write("These stocks haven't been analyzed yet. Run individual analysis first to get complete portfolio insights.")
+
+
+def perform_deep_portfolio_analysis(holdings, analysis_data, mode, profile, target_sectors, risk_tolerance, growth_focus):
+    """Perform comprehensive deep-dive portfolio analysis."""
+    
+    total_allocation = sum(holdings.values())
+    num_holdings = len(holdings)
+    
+    # Initialize analysis dictionary
+    analysis = {
+        'sectors': set(),
+        'sector_allocation': {},
+        'sector_details': {},
+        'risk_score': 0,
+        'diversification_score': 0,
+        'concentration_level': 'Low',
+        'concentration_risks': [],
+        'portfolio_risks': [],
+        'risk_mitigation': [],
+        'holding_ratings': {},
+        'holding_roles': {},
+        'individual_risks': {},
+        'key_insights': [],
+        'missing_sectors': [],
+        'underweight_sectors': {},
+        'sector_diversity_score': 0,
+        'correlation_analysis': '',
+        'overall_quality': 'Good',
+        'quality_explanation': '',
+        'immediate_actions': [],
+        'short_term_actions': [],
+        'long_term_actions': [],
+        'monitoring_priorities': [],
+        'rebalancing_suggestions': [],
+        'growth_allocation': 0,
+        'value_allocation': 0,
+        'blend_allocation': 0,
+        'style_analysis': '',
+        'return_profile': '',
+        'time_horizon_fit': '',
+        'profile_alignment': '',
+        'holdings_by_style': {},
+        'market_context': '',
+        'sector_trends': {},
+        'potential_catalysts': [],
+        'external_risks': [],
+        'trim_candidates': [],
+        'alternative_scenarios': []
+    }
+    
+    # Analyze sector allocation
+    sector_counts = {}
+    for ticker, data in analysis_data.items():
+        ticker_sectors = data.get('sectors', ['Unknown'])
+        allocation = holdings.get(ticker, 0)
+        
+        for sector in ticker_sectors:
+            analysis['sectors'].add(sector)
+            analysis['sector_allocation'][sector] = analysis['sector_allocation'].get(sector, 0) + allocation
+            sector_counts[sector] = sector_counts.get(sector, 0) + 1
+    
+    # Calculate sector details
+    for sector in analysis['sectors']:
+        analysis['sector_details'][sector] = (
+            analysis['sector_allocation'].get(sector, 0),
+            sector_counts.get(sector, 0)
+        )
+    
+    # Position sizing analysis
+    max_position = max(holdings.values()) if holdings else 0
+    top_3_allocation = sum(sorted(holdings.values(), reverse=True)[:3]) if len(holdings) >= 3 else total_allocation
+    
+    # Calculate risk score (0-10, higher = riskier)
+    risk_factors = []
+    
+    if max_position > 25:
+        risk_factors.append(3.0)
+        analysis['concentration_risks'].append(f"Single position exceeds 25% ({max_position:.1f}%)")
+    elif max_position > 20:
+        risk_factors.append(2.0)
+    elif max_position > 15:
+        risk_factors.append(1.0)
+    
+    if top_3_allocation > 60:
+        risk_factors.append(2.5)
+        analysis['concentration_risks'].append(f"Top 3 positions represent {top_3_allocation:.1f}% of portfolio")
+    elif top_3_allocation > 50:
+        risk_factors.append(1.5)
+    
+    if num_holdings < 5:
+        risk_factors.append(2.0)
+        analysis['portfolio_risks'].append(f"Limited diversification with only {num_holdings} holdings")
+    elif num_holdings < 8:
+        risk_factors.append(1.0)
+    
+    if len(analysis['sectors']) < 3:
+        risk_factors.append(2.5)
+        analysis['portfolio_risks'].append(f"Concentrated in {len(analysis['sectors'])} sector(s)")
+    elif len(analysis['sectors']) < 5:
+        risk_factors.append(1.0)
+    
+    analysis['risk_score'] = min(10, sum(risk_factors))
+    
+    # Diversification score (0-10, higher = better)
+    div_score = 0
+    if num_holdings >= 10:
+        div_score += 3
+    elif num_holdings >= 7:
+        div_score += 2
+    elif num_holdings >= 5:
+        div_score += 1
+    
+    if len(analysis['sectors']) >= 6:
+        div_score += 3
+    elif len(analysis['sectors']) >= 4:
+        div_score += 2
+    elif len(analysis['sectors']) >= 3:
+        div_score += 1
+    
+    if max_position <= 15:
+        div_score += 2
+    elif max_position <= 20:
+        div_score += 1
+    
+    if top_3_allocation <= 40:
+        div_score += 2
+    elif top_3_allocation <= 50:
+        div_score += 1
+    
+    analysis['diversification_score'] = div_score
+    analysis['sector_diversity_score'] = min(10, (len(analysis['sectors']) / 8.0) * 10)
+    
+    # Concentration level
+    if max_position > 25 or top_3_allocation > 60:
+        analysis['concentration_level'] = 'High'
+    elif max_position > 15 or top_3_allocation > 45:
+        analysis['concentration_level'] = 'Medium'
+    else:
+        analysis['concentration_level'] = 'Low'
+    
+    # Rate each holding
+    for ticker, allocation in holdings.items():
+        if allocation > 20:
+            analysis['holding_ratings'][ticker] = 'Overweight/Core'
+            analysis['holding_roles'][ticker] = f"Core position driving {allocation:.1f}% of portfolio returns. High impact on overall performance."
+        elif allocation > 10:
+            analysis['holding_ratings'][ticker] = 'Core'
+            analysis['holding_roles'][ticker] = f"Significant core holding contributing {allocation:.1f}% to portfolio diversification and returns."
+        elif allocation > 5:
+            analysis['holding_ratings'][ticker] = 'Balanced'
+            analysis['holding_roles'][ticker] = f"Balanced position at {allocation:.1f}% providing sector exposure and diversification."
+        else:
+            analysis['holding_ratings'][ticker] = 'Satellite'
+            analysis['holding_roles'][ticker] = f"Satellite position at {allocation:.1f}% for tactical exposure or emerging opportunities."
+        
+        # Individual risks
+        risks = []
+        if allocation > 20:
+            risks.append(f"High concentration risk - represents {allocation:.1f}% of portfolio")
+        
+        ticker_data = analysis_data.get(ticker, {})
+        confidence = ticker_data.get('confidence', 0)
+        if confidence < 60:
+            risks.append(f"Lower confidence analysis ({confidence:.0f}%) - may warrant additional due diligence")
+        
+        recommendation = ticker_data.get('recommendation', '')
+        if 'sell' in recommendation.lower():
+            risks.append("Current recommendation is SELL - consider reviewing position")
+        
+        analysis['individual_risks'][ticker] = risks if risks else ["Standard market risk applies"]
+    
+    # Risk mitigation strategies
+    if analysis['risk_score'] > 6:
+        analysis['risk_mitigation'].append("Consider reducing largest positions to under 15% each")
+        analysis['risk_mitigation'].append("Add holdings in underrepresented sectors to improve diversification")
+    if num_holdings < 8:
+        analysis['risk_mitigation'].append(f"Increase number of holdings from {num_holdings} to at least 8-10 for better risk distribution")
+    if len(analysis['sectors']) < 5:
+        analysis['risk_mitigation'].append("Expand sector coverage to include defensive sectors like Healthcare or Consumer Staples")
+    if not analysis['risk_mitigation']:
+        analysis['risk_mitigation'].append("Portfolio structure is sound - maintain current diversification levels")
+    
+    # Key insights
+    analysis['key_insights'].append(f"Portfolio contains {num_holdings} holdings across {len(analysis['sectors'])} sector(s)")
+    analysis['key_insights'].append(f"Largest position is {max_position:.1f}% - " + 
+                                   ("within optimal range" if max_position <= 20 else "consider trimming for risk management"))
+    
+    avg_confidence = sum(data.get('confidence', 0) for data in analysis_data.values()) / len(analysis_data) if analysis_data else 0
+    analysis['key_insights'].append(f"Average analysis confidence: {avg_confidence:.0f}% - " + 
+                                   ("high conviction" if avg_confidence > 70 else "moderate conviction" if avg_confidence > 60 else "lower conviction"))
+    
+    # Missing sectors analysis
+    all_sectors = {'Technology', 'Healthcare', 'Finance', 'Consumer', 'Energy', 'Real Estate', 'Utilities', 'Industrials', 'Materials'}
+    analysis['missing_sectors'] = list(all_sectors - analysis['sectors'])
+    
+    # Underweight sectors
+    for sector, (alloc, count) in analysis['sector_details'].items():
+        if alloc < 10 and count == 1:
+            analysis['underweight_sectors'][sector] = f"Only {alloc:.1f}% from single holding"
+    
+    # Correlation analysis
+    if len(analysis['sectors']) >= 5:
+        analysis['correlation_analysis'] = f"Portfolio shows good sector diversification across {len(analysis['sectors'])} sectors, suggesting lower correlation risk. This should help reduce volatility during market corrections."
+    else:
+        analysis['correlation_analysis'] = f"Limited to {len(analysis['sectors'])} sectors - holdings may move together during market volatility. Consider adding uncorrelated sectors."
+    
+    # Overall quality assessment
+    if analysis['diversification_score'] >= 8 and analysis['risk_score'] <= 4:
+        analysis['overall_quality'] = 'Excellent'
+        analysis['quality_explanation'] = "Portfolio demonstrates excellent diversification with well-balanced positions and appropriate risk management."
+    elif analysis['diversification_score'] >= 6 and analysis['risk_score'] <= 6:
+        analysis['overall_quality'] = 'Good'
+        analysis['quality_explanation'] = "Portfolio is well-structured with good diversification, though some optimization opportunities exist."
+    else:
+        analysis['overall_quality'] = 'Needs Improvement'
+        analysis['quality_explanation'] = "Portfolio would benefit from improved diversification and risk management adjustments."
+    
+    # Action items
+    if max_position > 25:
+        analysis['immediate_actions'].append(f"Trim largest position ({max_position:.1f}%) to under 20% to reduce concentration risk")
+    
+    if num_holdings < 5:
+        analysis['immediate_actions'].append("Add at least 2-3 more positions to improve diversification")
+    
+    if len(analysis['sectors']) < 3:
+        analysis['short_term_actions'].append("Expand into at least 2 additional sectors")
+    
+    if 'Healthcare' not in analysis['sectors']:
+        analysis['short_term_actions'].append("Consider adding Healthcare exposure for defensive diversification")
+    
+    if total_allocation < 95:
+        analysis['short_term_actions'].append(f"Deploy remaining {100-total_allocation:.1f}% capital according to recommendations")
+    
+    analysis['long_term_actions'].append("Regularly rebalance to maintain target allocations")
+    analysis['long_term_actions'].append("Monitor earnings reports and update analysis quarterly")
+    analysis['long_term_actions'].append("Review and adjust sector exposure based on economic cycle")
+    
+    # Monitoring priorities
+    for ticker, allocation in sorted(holdings.items(), key=lambda x: x[1], reverse=True)[:3]:
+        analysis['monitoring_priorities'].append(f"{ticker} ({allocation:.1f}%) - Top position requiring regular monitoring")
+    
+    # Rebalancing suggestions
+    if max_position > 20:
+        target = 15
+        excess = max_position - target
+        top_ticker = max(holdings.items(), key=lambda x: x[1])[0]
+        analysis['rebalancing_suggestions'].append({
+            'Action': 'Trim',
+            'Ticker': top_ticker,
+            'Current %': f"{max_position:.1f}%",
+            'Target %': f"{target:.1f}%",
+            'Change': f"-{excess:.1f}%"
+        })
+    
+    # Style analysis
+    growth_count = 0
+    value_count = 0
+    for ticker, data in analysis_data.items():
+        rec = data.get('recommendation', '').lower()
+        if 'growth' in rec or data.get('confidence', 0) > 75:
+            growth_count += holdings.get(ticker, 0)
+        elif 'value' in rec:
+            value_count += holdings.get(ticker, 0)
+    
+    analysis['growth_allocation'] = growth_count
+    analysis['value_allocation'] = value_count
+    analysis['blend_allocation'] = total_allocation - growth_count - value_count
+    
+    if growth_count > 60:
+        analysis['style_analysis'] = "Growth-oriented portfolio with high allocation to appreciation-focused stocks. Suitable for longer time horizons and higher risk tolerance."
+    elif value_count > 60:
+        analysis['style_analysis'] = "Value-oriented portfolio emphasizing fundamentals and downside protection. More conservative approach."
+    else:
+        analysis['style_analysis'] = "Balanced blend of growth and value, providing exposure to both appreciation and stability."
+    
+    # Return profile
+    avg_confidence = sum(data.get('confidence', 0) for data in analysis_data.values()) / len(analysis_data) if analysis_data else 0
+    if avg_confidence > 70:
+        analysis['return_profile'] = "High conviction portfolio with strong return potential based on analysis confidence levels. Expect above-market returns if thesis plays out."
+    else:
+        analysis['return_profile'] = "Moderate conviction portfolio with market-level return expectations. Focus on consistency and risk management."
+    
+    # Time horizon
+    if growth_count > 50:
+        analysis['time_horizon_fit'] = "Best suited for 3-5+ year investment horizon given growth orientation"
+    else:
+        analysis['time_horizon_fit'] = "Suitable for 1-3 year horizon with quarterly rebalancing"
+    
+    # Profile alignment
+    if mode == "Client Fit Analysis" and profile:
+        if profile == "Conservative" and analysis['risk_score'] <= 4:
+            analysis['profile_alignment'] = "Well-aligned with conservative profile - appropriate risk levels and diversification"
+        elif profile == "Aggressive" and analysis['risk_score'] >= 6:
+            analysis['profile_alignment'] = "Matches aggressive profile with concentrated positions and growth focus"
+        else:
+            analysis['profile_alignment'] = f"Moderate alignment with {profile} profile - some adjustments recommended"
+    
+    # Holdings by style
+    analysis['holdings_by_style'] = {
+        'Growth': [],
+        'Value': [],
+        'Blend': []
+    }
+    
+    for ticker, allocation in holdings.items():
+        ticker_data = analysis_data.get(ticker, {})
+        confidence = ticker_data.get('confidence', 0)
+        
+        if confidence > 75:
+            analysis['holdings_by_style']['Growth'].append({
+                'ticker': ticker,
+                'allocation': allocation,
+                'reason': f"High confidence ({confidence:.0f}%) growth candidate"
+            })
+        elif confidence > 60:
+            analysis['holdings_by_style']['Blend'].append({
+                'ticker': ticker,
+                'allocation': allocation,
+                'reason': f"Moderate confidence ({confidence:.0f}%) balanced position"
+            })
+        else:
+            analysis['holdings_by_style']['Value'].append({
+                'ticker': ticker,
+                'allocation': allocation,
+                'reason': f"Value/defensive play with standard risk profile"
+            })
+    
+    # Market context
+    analysis['market_context'] = "Current market environment requires balanced approach with attention to sector rotation and risk management. Maintain diversification across defensive and growth sectors."
+    
+    # Sector trends
+    for sector in analysis['sectors']:
+        analysis['sector_trends'][sector] = f"Monitor {sector} sector for earnings trends, regulatory changes, and competitive dynamics affecting portfolio holdings."
+    
+    # Potential catalysts
+    analysis['potential_catalysts'].append("Earnings reports from major holdings")
+    analysis['potential_catalysts'].append("Sector rotation opportunities based on economic data")
+    analysis['potential_catalysts'].append("Market volatility creating entry points for underweight sectors")
+    
+    # External risks
+    analysis['external_risks'].append("Market-wide correction affecting all holdings")
+    analysis['external_risks'].append("Sector-specific headwinds in concentrated areas")
+    analysis['external_risks'].append("Macroeconomic changes (rates, inflation) impacting valuations")
+    
+    # Trim candidates
+    for ticker, allocation in holdings.items():
+        ticker_data = analysis_data.get(ticker, {})
+        if allocation > 20:
+            analysis['trim_candidates'].append({
+                'ticker': ticker,
+                'reason': f"Overweight at {allocation:.1f}% - consider trimming to 15-18% for risk management"
+            })
+        
+        rec = ticker_data.get('recommendation', '').lower()
+        if 'sell' in rec:
+            analysis['trim_candidates'].append({
+                'ticker': ticker,
+                'reason': f"Current analysis recommends SELL - evaluate exit strategy"
+            })
+    
+    # Alternative scenarios
+    analysis['alternative_scenarios'] = [
+        {
+            'name': 'Conservative Shift',
+            'objective': 'Reduce portfolio risk and volatility',
+            'approach': 'Increase defensive sectors (Healthcare, Utilities) to 30%, trim growth positions',
+            'changes': [
+                'Add 2-3 defensive healthcare names',
+                'Trim top 2 growth positions by 3-5% each',
+                'Target max position size of 12%'
+            ]
+        },
+        {
+            'name': 'Growth Acceleration',
+            'objective': 'Maximize upside potential for longer-term gains',
+            'approach': 'Concentrate in high-conviction growth ideas',
+            'changes': [
+                'Increase top 3 positions to 20-25% each',
+                'Exit lower conviction positions',
+                'Focus on Technology and innovation themes'
+            ]
+        },
+        {
+            'name': 'Income Focus',
+            'objective': 'Generate steady dividend income',
+            'approach': 'Rotate into dividend aristocrats and stable payers',
+            'changes': [
+                'Add 3-4 dividend-focused positions',
+                'Target 3-4% portfolio yield',
+                'Balance growth and income (60/40 split)'
+            ]
+        }
+    ]
+    
+    return analysis
+
+
+def generate_client_fit_recommendations(holdings, analysis_data, profile):
+    """Generate recommendations based on client risk profile."""
+    total_allocation = sum(holdings.values())
+    
+    # Define profile-based allocation strategies
+    profile_strategies = {
+        "Conservative": {"tech_max": 25, "growth_focus": 3, "risk_tolerance": 3},
+        "Moderate": {"tech_max": 40, "growth_focus": 5, "risk_tolerance": 5},
+        "Aggressive": {"tech_max": 60, "growth_focus": 8, "risk_tolerance": 8},
+        "Growth-Focused": {"tech_max": 70, "growth_focus": 9, "risk_tolerance": 7}
+    }
+    
+    strategy = profile_strategies.get(profile, profile_strategies["Moderate"])
+    
+    # Analyze current allocation vs profile
+    tech_allocation = 0
+    for ticker in holdings.keys():
+        ticker_sectors = analysis_data.get(ticker, {}).get('sectors', [])
+        if ticker_sectors and any(sector in ticker_sectors for sector in ['Technology', 'Software']):
+            tech_allocation += holdings[ticker]
+    
+    recommendations = {
+        'status': 'good',
+        'message': f"Your portfolio aligns well with a {profile} investment profile.",
+        'adjustments': []
+    }
+    
+    if tech_allocation > strategy['tech_max']:
+        recommendations['status'] = 'adjust'
+        recommendations['adjustments'].append(
+            f"Consider reducing technology allocation from {tech_allocation:.1f}% to under {strategy['tech_max']}%"
+        )
+    
+    if total_allocation < 95:
+        recommendations['adjustments'].append(
+            f"Consider allocating the remaining {100-total_allocation:.1f}% to complete your portfolio"
+        )
+    
+    return recommendations
+
+
+def generate_custom_recommendations(holdings, analysis_data, target_sectors, risk_tolerance, growth_focus):
+    """Generate recommendations based on custom specifications."""
+    recommendations = {
+        'status': 'good',
+        'message': "Your portfolio aligns with your custom specifications.",
+        'adjustments': []
+    }
+    
+    # Add custom logic based on parameters
+    if risk_tolerance < 5 and len(holdings) < 5:
+        recommendations['adjustments'].append(
+            "For conservative risk tolerance, consider adding more diversification with 5+ holdings"
+        )
+    
+    if growth_focus > 7:
+        growth_heavy = 0
+        for ticker in holdings.keys():
+            ticker_tags = analysis_data.get(ticker, {}).get('tags', [])
+            if ticker_tags and 'Growth' in ticker_tags:
+                growth_heavy += holdings[ticker]
+        if growth_heavy < 60:
+            recommendations['adjustments'].append(
+                "For high growth focus, consider increasing allocation to growth stocks"
+            )
+    
+    return recommendations
+
+
+def get_portfolio_news_analysis(tickers, deep_analysis=None):
+    """Get comprehensive real-time news analysis using Perplexity AI."""
+    
+    # Check if Perplexity is available
+    if not hasattr(st.session_state, 'perplexity_client') or st.session_state.perplexity_client is None:
+        return """
+**Market Environment Assessment:**
+
+⚠️ Real-time news analysis requires Perplexity API access. Using general market context instead.
+
+Your portfolio of {0} holdings shows diversification across multiple sectors. Monitor earnings reports, 
+regulatory changes, and competitive dynamics in your key sectors for optimal risk management.
+
+**Recommendation:** Enable Perplexity API for comprehensive real-time market intelligence and news analysis.
+""".format(len(tickers))
+    
+    try:
+        # Build comprehensive prompt for Perplexity
+        ticker_list = ', '.join(tickers)
+        sector_info = ""
+        
+        if deep_analysis and deep_analysis['sector_allocation']:
+            top_sectors = sorted(deep_analysis['sector_allocation'].items(), key=lambda x: x[1], reverse=True)[:3]
+            sector_info = f"\nTop sector exposures: {', '.join([f'{s[0]} ({s[1]:.1f}%)' for s in top_sectors])}"
+        
+        prompt = f"""Analyze the current market environment and recent news (past 7 days) for this investment portfolio:
+
+Holdings: {ticker_list}
+Total positions: {len(tickers)}{sector_info}
+
+Provide a comprehensive analysis covering:
+
+1. **Overall Market Context**: Current market conditions, trends, and sentiment affecting these holdings
+2. **Company-Specific News**: Recent earnings, announcements, or significant developments for each ticker
+3. **Sector Trends**: Industry dynamics and rotation patterns affecting the portfolio sectors
+4. **Risk Factors**: Immediate concerns, regulatory issues, or competitive threats
+5. **Opportunities**: Positive catalysts, favorable trends, or underappreciated developments
+6. **Portfolio Impact Assessment**: How recent news affects the overall portfolio positioning
+
+Focus on actionable insights and be specific about which holdings are impacted by each development. 
+Rate the overall news sentiment as Positive, Neutral, or Negative with brief justification.
+
+Format the response in clear sections with bullet points for easy reading."""
+
+        # Call Perplexity API
+        response = st.session_state.perplexity_client.chat.completions.create(
+            model="sonar-pro",
+            messages=[
+                {
+                    "role": "system", 
+                    "content": "You are an expert financial analyst with access to real-time market data and news. Provide comprehensive, actionable market analysis for investment portfolios."
+                },
+                {
+                    "role": "user", 
+                    "content": prompt
+                }
+            ],
+            temperature=0.3,  # Lower temperature for more factual analysis
+            max_tokens=2000   # Allow for comprehensive response
+        )
+        
+        analysis_text = response.choices[0].message.content.strip()
+        
+        # Add metadata
+        analysis_header = f"""## 📰 Real-Time Portfolio News & Market Analysis
+*Analysis generated on {datetime.now().strftime('%Y-%m-%d at %H:%M')} using Perplexity AI with real-time data*
+
+---
+
+"""
+        
+        return analysis_header + analysis_text
+        
+    except Exception as e:
+        st.error(f"Error fetching real-time news analysis: {e}")
+        # Fallback to basic analysis
+        return f"""
+**Market Environment Assessment:**
+
+⚠️ Unable to fetch real-time analysis. Error: {str(e)}
+
+Your portfolio of {len(tickers)} holdings includes: {', '.join(tickers[:5])}{'...' if len(tickers) > 5 else ''}
+
+**General Recommendations:**
+• Monitor earnings reports from your holdings
+• Stay alert to sector-specific regulatory changes
+• Review position sizes during high volatility
+• Consider setting price alerts for largest positions
+
+**Next Steps:** Check API configuration or try again later for comprehensive real-time analysis.
+"""
+
+
+def get_portfolio_upcoming_events(tickers, timeframe, deep_analysis, format_type="Detailed"):
+    """Get comprehensive upcoming events calendar for portfolio holdings using Perplexity."""
+    
+    if not hasattr(st.session_state, 'perplexity_client') or st.session_state.perplexity_client is None:
+        return """
+## 📅 Upcoming Events Calendar
+
+⚠️ Real-time event tracking requires Perplexity API access.
+
+**Manual Tracking Recommended:**
+- Check each company's investor relations page for earnings dates
+- Monitor SEC filings for material events
+- Set up Google Alerts for company-specific news
+
+Enable Perplexity API for automated event tracking and analysis.
+"""
+    
+    try:
+        ticker_list = ', '.join(tickers)
+        days_map = {
+            "Next 7 Days": 7,
+            "Next 14 Days": 14,
+            "Next 30 Days": 30
+        }
+        days = days_map.get(timeframe, 14)
+        
+        # Build portfolio context
+        sector_info = ""
+        if deep_analysis and deep_analysis['sector_allocation']:
+            top_sectors = sorted(deep_analysis['sector_allocation'].items(), key=lambda x: x[1], reverse=True)[:3]
+            sector_info = f"\nKey sectors: {', '.join([f'{s[0]}' for s in top_sectors])}"
+        
+        # Adjust prompt based on format
+        if format_type == "Summary Table":
+            format_instructions = """
+Format as a clean table:
+
+| Date | Ticker | Event Type | Description | Impact |
+|------|--------|------------|-------------|--------|
+| MM/DD | XXX | Earnings | Q4 earnings report | High |
+
+Sort chronologically. Use impact levels: 🔴 High, 🟡 Medium, 🟢 Low.
+Include only confirmed events with specific dates. If date is TBD, note in description."""
+        else:
+            format_instructions = """
+Format the response as:
+
+## 📅 Upcoming Events Calendar ({0}-Day Outlook)
+
+### [TICKER] - Company Name
+**[Date]** - Event Type
+- Description and details
+- Expected impact: High/Medium/Low
+- What to watch for
+
+Group events chronologically and highlight HIGH IMPACT events. Include specific dates and times when available. 
+If no significant events are scheduled for a ticker, note that it's in a "quiet period."
+
+Be specific with dates and details. Flag any events where timing is uncertain.""".format(days)
+        
+        prompt = f"""Create a comprehensive upcoming events calendar for these portfolio holdings: {ticker_list}
+
+Timeframe: Next {days} days from today ({datetime.now().strftime('%Y-%m-%d')}){sector_info}
+
+For EACH ticker, identify and list:
+
+1. **Earnings Reports**:
+   - Exact date and time (if announced)
+   - Expected EPS vs consensus
+   - Key metrics to watch
+   - Historical earnings reaction patterns
+
+2. **Product Launches & Announcements**:
+   - New product releases or major updates
+   - Strategic announcements scheduled
+   - Conference presentations or keynotes
+
+3. **Regulatory & Legal Events**:
+   - FDA decisions or regulatory approvals
+   - Court dates or legal proceedings
+   - Compliance deadlines
+
+4. **Corporate Actions**:
+   - Dividend ex-dates and payment dates
+   - Stock splits or special dividends
+   - Shareholder meetings
+   - Executive presentations or conferences
+
+5. **Industry Events**:
+   - Major industry conferences where company will present
+   - Competitor events that could impact holdings
+   - Sector-wide regulatory decisions
+
+6. **Economic Indicators**:
+   - Macro events that could significantly impact the portfolio sectors
+   - Fed meetings, jobs reports, inflation data
+
+{format_instructions}"""
+
+        response = st.session_state.perplexity_client.chat.completions.create(
+            model="sonar-pro",
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You are an expert portfolio manager and event tracker. Provide accurate, date-specific information about upcoming corporate and market events. Use real-time data to identify exact dates and details."
+                },
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ],
+            temperature=0.1,  # Very low for factual accuracy on dates
+            max_tokens=3000   # Extended for comprehensive calendar
+        )
+        
+        events_text = response.choices[0].message.content.strip()
+        
+        # Add header with metadata
+        header = f"""*Event calendar generated on {datetime.now().strftime('%Y-%m-%d at %H:%M')} via Perplexity AI with real-time data*
+
+**Portfolio Overview:** {len(tickers)} holdings across {len(deep_analysis['sectors'])} sectors
+
+---
+
+"""
+        
+        # Add summary section
+        footer = """
+
+---
+
+### 📊 Event Impact Summary
+
+**Key Recommendations:**
+- Set calendar reminders for all earnings dates
+- Review positions before high-impact events
+- Consider hedging strategies for concentrated positions ahead of binary events
+- Monitor pre-earnings option activity for sentiment signals
+- Have a plan for both upside and downside scenarios
+
+**Risk Management:**
+- Avoid adding to positions immediately before earnings
+- Consider reducing position size ahead of uncertain regulatory decisions
+- Stay liquid to take advantage of post-event volatility
+- Track analyst estimate revisions leading up to events
+
+💡 **Pro Tip:** The most important events are often the ones you don't know about. This calendar helps you stay ahead of portfolio-moving catalysts.
+"""
+        
+        return header + events_text + footer
+        
+    except Exception as e:
+        st.error(f"Error fetching upcoming events: {e}")
+        return f"""
+## 📅 Upcoming Events Calendar
+
+⚠️ Unable to fetch real-time event calendar. Error: {str(e)}
+
+**Manual Tracking Steps:**
+1. Visit each company's investor relations website
+2. Check earnings calendar sites (Yahoo Finance, Seeking Alpha)
+3. Set up news alerts for your holdings
+4. Monitor SEC Form 8-K filings for material events
+
+Please check API configuration or try again later.
+"""
+
+
+def get_macro_market_overview(deep_analysis):
+    """Get comprehensive macro market overview using Perplexity."""
+    
+    if not hasattr(st.session_state, 'perplexity_client') or st.session_state.perplexity_client is None:
+        return """
+**Macro Market Overview**
+
+⚠️ Real-time macro analysis requires Perplexity API access.
+
+Monitor key indicators: Fed policy, inflation data, GDP growth, and sector rotation trends for optimal portfolio positioning.
+"""
+    
+    try:
+        # Build portfolio context
+        sector_breakdown = ", ".join([f"{s}: {a:.1f}%" for s, a in sorted(deep_analysis['sector_allocation'].items(), key=lambda x: x[1], reverse=True)[:4]])
+        
+        prompt = f"""Provide a comprehensive macro market overview and its implications for an investment portfolio:
+
+Portfolio Context:
+- Portfolio composition: {sector_breakdown}
+- Risk score: {deep_analysis['risk_score']:.1f}/10
+- Diversification across {len(deep_analysis['sectors'])} sectors
+
+Analyze:
+
+1. **Current Macro Environment**:
+   - Federal Reserve policy stance and interest rate trajectory
+   - Inflation trends and their market impact
+   - Economic growth indicators (GDP, employment, consumer spending)
+   - Global economic considerations (China, Europe, emerging markets)
+
+2. **Market Regime Analysis**:
+   - Current market regime (Bull/Bear/Sideways) and volatility levels
+   - Risk-on vs risk-off sentiment
+   - Sector rotation patterns observed recently
+   - Equity market valuations (P/E ratios, earnings trends)
+
+3. **Asset Class Dynamics**:
+   - Equities vs bonds vs commodities performance
+   - Dollar strength and currency impacts
+   - Credit spreads and financial conditions
+   - Alternative assets (real estate, crypto) if relevant
+
+4. **Key Risks & Opportunities**:
+   - Top macro risks to monitor (recession, inflation, geopolitical)
+   - Potential positive catalysts ahead
+   - Which market segments appear attractive/unattractive
+
+5. **Portfolio Positioning Implications**:
+   - How should portfolios be positioned given current macro backdrop?
+   - Defensive vs offensive positioning recommendations
+   - Specific sector/style tilts that make sense now
+   - Risk management considerations
+
+Be data-driven and specific. Include recent economic data points and market moves."""
+
+        response = st.session_state.perplexity_client.chat.completions.create(
+            model="sonar-pro",
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You are a macro strategist and economist with expertise in Federal Reserve policy, economic indicators, and portfolio positioning across market cycles."
+                },
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ],
+            temperature=0.3,
+            max_tokens=2000
+        )
+        
+        analysis = response.choices[0].message.content.strip()
+        
+        header = f"""*Real-time macro analysis generated on {datetime.now().strftime('%Y-%m-%d at %H:%M')} via Perplexity AI*
+
+---
+
+"""
+        return header + analysis
+        
+    except Exception as e:
+        return f"Unable to fetch macro analysis: {str(e)}"
+
+
+def get_sector_specific_analysis(sector, holdings_in_sector, deep_analysis):
+    """Get detailed sector-specific analysis using Perplexity."""
+    
+    if not hasattr(st.session_state, 'perplexity_client') or st.session_state.perplexity_client is None:
+        return f"""
+### {sector} Sector Analysis
+
+Your portfolio has {len(holdings_in_sector)} holding(s) in this sector representing {deep_analysis['sector_allocation'].get(sector, 0):.1f}% allocation.
+
+⚠️ Real-time sector analysis requires Perplexity API access.
+"""
+    
+    try:
+        ticker_list = ', '.join(holdings_in_sector)
+        allocation = deep_analysis['sector_allocation'].get(sector, 0)
+        
+        prompt = f"""Provide comprehensive {sector} sector analysis relevant to these holdings: {ticker_list}
+
+Portfolio Context:
+- Sector allocation: {allocation:.1f}%
+- Number of holdings: {len(holdings_in_sector)}
+
+Analyze:
+
+1. **Current Sector Trends** (Past Month):
+   - Industry momentum and performance vs broader market
+   - Key sector-wide developments affecting all players
+   - Regulatory or policy changes impacting the sector
+
+2. **Competitive Dynamics**:
+   - Market leaders vs laggards
+   - Emerging competitive threats or consolidation trends
+   - Technology disruption or innovation affecting the sector
+
+3. **Economic & Market Factors**:
+   - Macroeconomic drivers (rates, GDP, consumer spending, etc.)
+   - Seasonal or cyclical considerations
+   - Supply chain or commodity price impacts
+
+4. **Forward Outlook**:
+   - Consensus sector outlook for next 3-6 months
+   - Key events or catalysts on the horizon
+   - Potential headwinds or tailwinds
+
+5. **Portfolio Implications**:
+   - Is {allocation:.1f}% allocation appropriate? (Overweight/Underweight/Neutral)
+   - Which holdings in this sector appear strongest/weakest?
+   - Recommended adjustments or additions in this sector
+
+Be specific with data points and actionable insights."""
+
+        response = st.session_state.perplexity_client.chat.completions.create(
+            model="sonar-pro",
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You are a sector specialist analyst with expertise in industry trends, competitive dynamics, and macroeconomic impacts."
+                },
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ],
+            temperature=0.3,
+            max_tokens=2000
+        )
+        
+        return response.choices[0].message.content.strip()
+        
+    except Exception as e:
+        return f"Unable to fetch sector analysis: {str(e)}"
+
+
+def get_individual_ticker_news_analysis(ticker, allocation, analysis_data):
+    """Get detailed news analysis for a specific ticker using Perplexity."""
+    
+    if not hasattr(st.session_state, 'perplexity_client') or st.session_state.perplexity_client is None:
+        return f"""
+### {ticker} - Deep Dive News Analysis
+
+⚠️ Real-time news analysis requires Perplexity API access.
+
+**Position Details:**
+- Portfolio Allocation: {allocation}%
+- Recommendation: {analysis_data.get('recommendation', 'N/A')}
+- Latest Analysis: {analysis_data.get('timestamp', 'Unknown')}
+
+Enable Perplexity API for comprehensive real-time news and market intelligence.
+"""
+    
+    try:
+        # Build detailed prompt for individual ticker
+        prompt = f"""Provide a comprehensive news and market analysis for {ticker}:
+
+Position Context:
+- Portfolio weight: {allocation}%
+- Current recommendation: {analysis_data.get('recommendation', 'N/A')}
+- Analysis date: {analysis_data.get('timestamp', 'Unknown')}
+
+Provide detailed analysis covering:
+
+1. **Breaking News & Recent Developments** (past 7 days):
+   - Earnings reports, guidance, or analyst updates
+   - Product launches, partnerships, or acquisitions
+   - Management changes or strategic announcements
+   - Any regulatory or legal developments
+
+2. **Stock Performance & Market Reaction**:
+   - Recent price action and volume trends
+   - Analyst rating changes and price target adjustments
+   - Institutional buying/selling activity if notable
+   - Technical levels and momentum indicators
+
+3. **Competitive Landscape**:
+   - Industry trends affecting the company
+   - Competitor moves or market share dynamics
+   - Disruptive threats or emerging opportunities
+
+4. **Forward Outlook**:
+   - Upcoming catalysts (earnings date, product releases, etc.)
+   - Consensus expectations and potential surprises
+   - Risk factors to monitor in coming weeks/months
+
+5. **Portfolio Recommendation**:
+   - Given the {allocation}% allocation, should this position be: Maintained, Increased, Decreased, or Exited?
+   - Specific price levels or events to watch
+   - Suggested action items for the investor
+
+Be specific with dates, numbers, and actionable insights. Rate overall sentiment as Bullish, Neutral, or Bearish."""
+
+        # Call Perplexity API
+        response = st.session_state.perplexity_client.chat.completions.create(
+            model="sonar-pro",
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You are an expert equity analyst with access to real-time market data, news, and filings. Provide detailed, actionable stock analysis."
+                },
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ],
+            temperature=0.2,  # Very low for factual accuracy
+            max_tokens=2500   # Extended for comprehensive analysis
+        )
+        
+        analysis_text = response.choices[0].message.content.strip()
+        
+        # Add header with metadata
+        header = f"""## 🔍 {ticker} - Comprehensive News Deep Dive
+
+**Position Details:**
+- Portfolio Allocation: {allocation}%
+- Recommendation: {analysis_data.get('recommendation', 'N/A')}
+- Confidence: {analysis_data.get('confidence', 0):.0f}%
+- Analysis Date: {analysis_data.get('timestamp', 'Unknown')}
+
+*Real-time analysis generated on {datetime.now().strftime('%Y-%m-%d at %H:%M')} via Perplexity AI*
+
+---
+
+"""
+        
+        return header + analysis_text
+        
+    except Exception as e:
+        st.error(f"Error fetching ticker news analysis: {e}")
+        return f"""
+### {ticker} - News Analysis
+
+⚠️ Unable to fetch real-time analysis. Error: {str(e)}
+
+**Position Details:**
+- Portfolio Allocation: {allocation}%
+- Recommendation: {analysis_data.get('recommendation', 'N/A')}
+
+Please check API configuration or try again later.
+"""
+
+
+def generate_portfolio_suggestions(holdings, analysis_data, mode, profile=None):
+    """Generate basic suggestions for new portfolio additions."""
+    suggestions = []
+    
+    # Get current sectors
+    current_sectors = set()
+    for ticker, data in analysis_data.items():
+        ticker_sectors = data.get('sectors', [])
+        if ticker_sectors:
+            current_sectors.update(ticker_sectors)
+    
+    # Sample suggestions based on what's missing
+    if 'Healthcare' not in current_sectors:
+        suggestions.append({
+            'ticker': 'JNJ',
+            'company': 'Johnson & Johnson',
+            'rationale': 'Adds healthcare diversification with defensive characteristics and dividend income.',
+            'suggested_allocation': 8,
+            'sector': 'Healthcare'
+        })
+    
+    if 'Finance' not in current_sectors:
+        suggestions.append({
+            'ticker': 'JPM',
+            'company': 'JPMorgan Chase',
+            'rationale': 'Strong financial sector exposure with solid fundamentals and rising rate environment benefits.',
+            'suggested_allocation': 6,
+            'sector': 'Finance'
+        })
+    
+    return suggestions[:2]  # Return top 2 suggestions
+
+
+def generate_detailed_portfolio_suggestions(holdings, analysis_data, deep_analysis, mode, profile=None):
+    """Generate detailed, in-depth suggestions for portfolio additions."""
+    suggestions = []
+    
+    current_sectors = deep_analysis['sectors']
+    missing_sectors = deep_analysis['missing_sectors']
+    
+    # Suggestion templates with detailed rationales
+    detailed_suggestions = {
+        'Healthcare': {
+            'ticker': 'UNH',
+            'company': 'UnitedHealth Group',
+            'sector': 'Healthcare',
+            'suggested_allocation': 8,
+            'priority': 'High',
+            'risk_level': 'Medium',
+            'timeline': '1-3 years',
+            'fills_gap': 'Healthcare sector exposure',
+            'detailed_rationale': """UnitedHealth Group is the largest healthcare company by revenue, offering diversified 
+exposure through both insurance (UnitedHealthcare) and healthcare services (Optum). The company demonstrates consistent 
+growth with strong fundamentals, making it an ideal defensive addition to growth-oriented portfolios.""",
+            'portfolio_fit': """Adding UNH would provide defensive healthcare exposure that performs well during market 
+volatility. Its ~2% dividend yield adds income generation while maintaining growth potential. The stock typically has 
+low correlation with technology and financial sectors, improving your portfolio's risk-adjusted returns.""",
+            'strengths': [
+                'Market leader with 15%+ revenue growth',
+                'Defensive characteristics reduce portfolio volatility',
+                'Strong cash flow generation supports dividend growth',
+                'Aging demographics provide long-term tailwind',
+                'Diversified business model reduces single-point risk'
+            ],
+            'considerations': [
+                'Regulatory risk from potential healthcare reform',
+                'Lower beta means less upside in bull markets',
+                'Large cap limits explosive growth potential'
+            ]
+        },
+        'Finance': {
+            'ticker': 'JPM',
+            'company': 'JPMorgan Chase',
+            'sector': 'Finance',
+            'suggested_allocation': 7,
+            'priority': 'High',
+            'risk_level': 'Medium',
+            'timeline': '2-4 years',
+            'fills_gap': 'Financial sector exposure',
+            'detailed_rationale': """JPMorgan Chase represents best-in-class financial services exposure with dominant 
+market positions across investment banking, consumer banking, and asset management. The company's fortress balance 
+sheet and diversified revenue streams provide stability while benefiting from rising interest rate environments.""",
+            'portfolio_fit': """JPM adds cyclical exposure that benefits from economic growth while maintaining quality 
+fundamentals. Its 2.5%+ dividend yield enhances portfolio income. Financial sector exposure provides diversification 
+from technology while capturing economic expansion themes.""",
+            'strengths': [
+                'Industry-leading ROE consistently above 15%',
+                'Diversified revenue across multiple business lines',
+                'Benefits from rising interest rate environment',
+                'Strong capital position exceeds regulatory requirements',
+                'Track record of growing dividends and buybacks'
+            ],
+            'considerations': [
+                'Cyclical exposure increases during recessions',
+                'Regulatory requirements limit aggressive growth',
+                'Interest rate sensitivity cuts both ways'
+            ]
+        },
+        'Consumer': {
+            'ticker': 'COST',
+            'company': 'Costco Wholesale',
+            'sector': 'Consumer',
+            'suggested_allocation': 6,
+            'priority': 'Medium',
+            'risk_level': 'Low',
+            'timeline': '3-5 years',
+            'fills_gap': 'Consumer defensive exposure',
+            'detailed_rationale': """Costco's membership-based warehouse model creates recurring revenue and customer 
+loyalty that transcends economic cycles. The company's pricing power and operational efficiency drive consistent 
+same-store sales growth while maintaining industry-leading margins.""",
+            'portfolio_fit': """COST provides defensive consumer exposure with growth characteristics. The stock performs 
+well across market cycles due to its value proposition. Adds stability without sacrificing growth potential, making 
+it ideal for balanced portfolio construction.""",
+            'strengths': [
+                'Membership model creates predictable recurring revenue',
+                'Defensive characteristics with growth potential',
+                'Strong balance sheet with minimal debt',
+                'Consistent market share gains',
+                'Inflation-resistant business model'
+            ],
+            'considerations': [
+                'Premium valuation limits margin of safety',
+                'Lower dividend yield than traditional consumer staples',
+                'International expansion carries execution risk'
+            ]
+        },
+        'Energy': {
+            'ticker': 'XOM',
+            'company': 'Exxon Mobil',
+            'sector': 'Energy',
+            'suggested_allocation': 5,
+            'priority': 'Medium',
+            'risk_level': 'Medium-High',
+            'timeline': '1-2 years',
+            'fills_gap': 'Energy and inflation hedge',
+            'detailed_rationale': """ExxonMobil provides integrated energy exposure with upstream and downstream 
+operations creating natural hedges. As energy transitions, XOM's massive cash flows fund both traditional operations 
+and clean energy investments, positioning it for long-term relevance.""",
+            'portfolio_fit': """Energy exposure serves as inflation hedge and portfolio diversifier with low correlation 
+to technology. XOM's 3.5%+ dividend yield enhances portfolio income while commodity exposure provides protection 
+during inflationary periods.""",
+            'strengths': [
+                'Integrated model provides operational flexibility',
+                'Strong dividend history (40+ years of growth)',
+                'Benefits from energy transition investments',
+                'Inflation hedge through commodity exposure',
+                'Massive scale provides competitive advantages'
+            ],
+            'considerations': [
+                'Energy transition risks to long-term business model',
+                'Commodity price volatility affects earnings',
+                'ESG concerns may limit investor base',
+                'Cyclical nature increases portfolio volatility'
+            ]
+        },
+        'Real Estate': {
+            'ticker': 'PLD',
+            'company': 'Prologis',
+            'sector': 'Real Estate',
+            'suggested_allocation': 5,
+            'priority': 'Low',
+            'risk_level': 'Medium',
+            'timeline': '2-5 years',
+            'fills_gap': 'Real estate and logistics exposure',
+            'detailed_rationale': """Prologis is the global leader in logistics real estate, owning warehouses essential 
+to e-commerce fulfillment. The secular trend toward online retail creates sustained demand for modern distribution 
+facilities, while the REIT structure provides tax-efficient income.""",
+            'portfolio_fit': """PLD adds real estate diversification with growth characteristics tied to e-commerce 
+expansion. The 2.5-3% dividend yield from REIT structure enhances portfolio income while providing inflation protection 
+through real asset exposure.""",
+            'strengths': [
+                'Market leader in high-demand logistics real estate',
+                'Secular e-commerce trends drive sustained demand',
+                'REIT structure provides tax-efficient income',
+                'Modern portfolio commands premium rents',
+                'Global diversification reduces geographic risk'
+            ],
+            'considerations': [
+                'Interest rate sensitivity affects REIT valuations',
+                'High valuation limits near-term upside',
+                'Economic slowdown impacts leasing activity',
+                'Competition from new supply in hot markets'
+            ]
+        },
+        'Technology': {
+            'ticker': 'MSFT',
+            'company': 'Microsoft',
+            'sector': 'Technology',
+            'suggested_allocation': 10,
+            'priority': 'High',
+            'risk_level': 'Medium',
+            'timeline': '3-5 years',
+            'fills_gap': 'Quality technology exposure',
+            'detailed_rationale': """Microsoft combines growth and quality with dominant positions in cloud computing 
+(Azure), productivity software (Office 365), and emerging AI applications. The company's subscription-based model 
+generates predictable recurring revenue while maintaining strong margins.""",
+            'portfolio_fit': """MSFT provides quality technology exposure with lower volatility than pure-play tech names. 
+Strong fundamentals and consistent execution make it suitable as a core holding. Cloud and AI exposure position the 
+portfolio for multi-year secular trends.""",
+            'strengths': [
+                'Leader in cloud computing with Azure growth',
+                'Subscription model creates recurring revenue',
+                'Strong competitive moats across products',
+                'AI integration across product suite',
+                'Consistent capital returns through dividends and buybacks'
+            ],
+            'considerations': [
+                'Large size limits growth rate potential',
+                'Valuation can contract during bear markets',
+                'Cloud competition from AWS and Google',
+                'Regulatory scrutiny on big tech'
+            ]
+        }
+    }
+    
+    # Select suggestions based on missing sectors and portfolio needs
+    suggestion_priority = []
+    
+    # High priority: Missing defensive sectors
+    if 'Healthcare' in missing_sectors:
+        suggestion_priority.append(detailed_suggestions['Healthcare'])
+    
+    # High priority: Missing financial exposure
+    if 'Finance' in missing_sectors or deep_analysis['sector_allocation'].get('Finance', 0) < 10:
+        suggestion_priority.append(detailed_suggestions['Finance'])
+    
+    # Medium priority: Consumer defensive
+    if 'Consumer' in missing_sectors or deep_analysis['sector_allocation'].get('Consumer', 0) < 5:
+        suggestion_priority.append(detailed_suggestions['Consumer'])
+    
+    # Add technology if underweight
+    if deep_analysis['sector_allocation'].get('Technology', 0) < 20 and len(holdings) > 3:
+        suggestion_priority.append(detailed_suggestions['Technology'])
+    
+    # Inflation hedges
+    if 'Energy' in missing_sectors:
+        suggestion_priority.append(detailed_suggestions['Energy'])
+    
+    # Diversification
+    if 'Real Estate' in missing_sectors and len(holdings) >= 7:
+        suggestion_priority.append(detailed_suggestions['Real Estate'])
+    
+    # Return top 3-4 suggestions
+    return suggestion_priority[:4] if len(suggestion_priority) > 3 else suggestion_priority
+
+
 def qa_learning_center_page():
     """QA & Learning Center page - tracks recommendation performance and enables model improvement."""
     st.header("🎯 QA & Learning Center")
@@ -3670,13 +6301,201 @@ def qa_learning_center_page():
     
     qa_system = st.session_state.qa_system
     
-    # Add refresh button
-    if st.button("🔄 Refresh QA Data", help="Reload data from storage"):
-        qa_system.recommendations = qa_system._load_recommendations()
-        qa_system.all_analyses = qa_system._load_all_analyses()
-        qa_system.reviews = qa_system._load_reviews()
-        st.success("QA data refreshed!")
-        st.rerun()
+    # Add refresh and export buttons
+    col_btn1, col_btn2, col_btn3, col_btn4 = st.columns([2, 2, 2, 2])
+    
+    with col_btn1:
+        if st.button("🔄 Refresh QA Data", help="Reload data from storage", use_container_width=True):
+            qa_system.recommendations = qa_system._load_recommendations()
+            qa_system.all_analyses = qa_system._load_all_analyses()
+            qa_system.reviews = qa_system._load_reviews()
+            st.success("QA data refreshed!")
+            st.rerun()
+    
+    # 🆕 IMPROVEMENT #9: Batch Export All Tracked Stocks
+    with col_btn2:
+        tracked_tickers = qa_system.get_tracked_tickers()
+        if tracked_tickers and len(tracked_tickers) > 0:
+            if st.button(f"📥 Export All ({len(tracked_tickers)} stocks)", use_container_width=True):
+                st.session_state.show_batch_export = True
+        else:
+            st.button("📥 Export All (No data)", disabled=True, use_container_width=True)
+    
+    # Google Sheets Export with Price Fetching
+    with col_btn3:
+        analysis_archive = qa_system.get_analysis_archive()
+        sheets_enabled = st.session_state.get('sheets_enabled', False)
+        if analysis_archive and sheets_enabled:
+            if st.button("📊 Sync to Sheets", help="Export to Google Sheets with price options", use_container_width=True):
+                st.session_state.show_sheets_export = True
+                st.rerun()
+        elif not sheets_enabled:
+            st.button("📊 Sync to Sheets (Connect first)", disabled=True, use_container_width=True)
+        else:
+            st.button("📊 Sync to Sheets (No data)", disabled=True, use_container_width=True)
+    
+    with col_btn4:
+        analysis_archive = qa_system.get_analysis_archive()
+        if analysis_archive and len(analysis_archive) > 0:
+            # Generate comprehensive export
+            import pandas as pd
+            from datetime import datetime
+            export_rows = []
+            for ticker, analyses in analysis_archive.items():
+                for analysis in analyses:
+                    row = {
+                        'Ticker': ticker,
+                        'Date': analysis.timestamp.strftime('%Y-%m-%d %H:%M'),
+                        'Recommendation': analysis.recommendation.value,
+                        'Score': analysis.confidence_score,
+                        'Price': analysis.price_at_analysis,
+                        'Sector': analysis.sector if hasattr(analysis, 'sector') else 'N/A',
+                        'Market Cap': analysis.market_cap if hasattr(analysis, 'market_cap') else 'N/A'
+                    }
+                    
+                    # Add agent scores if available
+                    if hasattr(analysis, 'agent_scores') and analysis.agent_scores:
+                        for agent, score in analysis.agent_scores.items():
+                            row[f"{agent.replace('_', ' ').title()} Score"] = score
+                    
+                    export_rows.append(row)
+            
+            df_export = pd.DataFrame(export_rows)
+            csv_export = df_export.to_csv(index=False)
+            
+            st.download_button(
+                label=f"📊 Download All Data ({len(export_rows)} analyses)",
+                data=csv_export,
+                file_name=f"all_analyses_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                mime="text/csv",
+                use_container_width=True
+            )
+    
+    # Show batch export interface if requested
+    if st.session_state.get('show_batch_export', False):
+        with st.expander("📦 Batch Export Options", expanded=True):
+            st.write("**Select what to include in the export:**")
+            
+            col_exp1, col_exp2 = st.columns(2)
+            
+            with col_exp1:
+                include_rationales = st.checkbox("Include Agent Rationales", value=False)
+                include_fundamentals = st.checkbox("Include Fundamental Data", value=True)
+                include_agent_scores = st.checkbox("Include Agent Scores", value=True)
+            
+            with col_exp2:
+                export_format = st.radio("Export Format", ["CSV", "JSON", "Markdown Report"])
+                date_filter = st.selectbox("Date Range", ["All Time", "Last 30 Days", "Last 90 Days", "Last Year"])
+            
+            if st.button("🎯 Generate Batch Export", type="primary"):
+                from datetime import datetime, timedelta
+                
+                # Apply date filter
+                cutoff_date = None
+                if date_filter == "Last 30 Days":
+                    cutoff_date = datetime.now() - timedelta(days=30)
+                elif date_filter == "Last 90 Days":
+                    cutoff_date = datetime.now() - timedelta(days=90)
+                elif date_filter == "Last Year":
+                    cutoff_date = datetime.now() - timedelta(days=365)
+                
+                # Generate export data
+                export_data = []
+                for ticker, analyses in analysis_archive.items():
+                    for analysis in analyses:
+                        if cutoff_date and analysis.timestamp < cutoff_date:
+                            continue
+                        
+                        row = {
+                            'Ticker': ticker,
+                            'Analysis Date': analysis.timestamp.strftime('%Y-%m-%d %H:%M:%S'),
+                            'Recommendation': analysis.recommendation.value.upper(),
+                            'Confidence Score': analysis.confidence_score,
+                            'Price at Analysis': analysis.price_at_analysis
+                        }
+                        
+                        if include_fundamentals:
+                            row['Sector'] = analysis.sector if hasattr(analysis, 'sector') else 'N/A'
+                            row['Market Cap'] = analysis.market_cap if hasattr(analysis, 'market_cap') else 'N/A'
+                        
+                        if include_agent_scores and hasattr(analysis, 'agent_scores') and analysis.agent_scores:
+                            for agent, score in analysis.agent_scores.items():
+                                row[f"{agent.replace('_', ' ').title()} Score"] = score
+                        
+                        if include_rationales and hasattr(analysis, 'agent_rationales') and analysis.agent_rationales:
+                            for agent, rationale in analysis.agent_rationales.items():
+                                if rationale:
+                                    row[f"{agent.replace('_', ' ').title()} Rationale"] = rationale[:1000]  # Allow full rationale
+                        
+                        export_data.append(row)
+                
+                # Generate file based on format
+                if export_format == "CSV":
+                    import pandas as pd
+                    df = pd.DataFrame(export_data)
+                    csv_data = df.to_csv(index=False)
+                    st.download_button(
+                        label=f"📥 Download CSV ({len(export_data)} analyses)",
+                        data=csv_data,
+                        file_name=f"batch_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                        mime="text/csv"
+                    )
+                elif export_format == "JSON":
+                    import json
+                    json_data = json.dumps(export_data, indent=2, default=str)
+                    st.download_button(
+                        label=f"📥 Download JSON ({len(export_data)} analyses)",
+                        data=json_data,
+                        file_name=f"batch_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+                        mime="application/json"
+                    )
+                else:  # Markdown Report
+                    md_report = f"# Investment Analysis Batch Export\n\n"
+                    md_report += f"**Generated:** {datetime.now().strftime('%B %d, %Y at %I:%M %p')}\n\n"
+                    md_report += f"**Total Analyses:** {len(export_data)}\n\n---\n\n"
+                    
+                    for item in export_data:
+                        md_report += f"## {item['Ticker']}\n\n"
+                        for key, value in item.items():
+                            if key != 'Ticker':
+                                md_report += f"- **{key}:** {value}\n"
+                        md_report += "\n---\n\n"
+                    
+                    st.download_button(
+                        label=f"📥 Download Markdown ({len(export_data)} analyses)",
+                        data=md_report,
+                        file_name=f"batch_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md",
+                        mime="text/markdown"
+                    )
+                
+                st.success(f"✅ Exported {len(export_data)} analyses!")
+            
+            if st.button("❌ Close"):
+                st.session_state.show_batch_export = False
+                st.rerun()
+    
+    # Show Google Sheets export interface if requested
+    if st.session_state.get('show_sheets_export', False):
+        with st.expander("📊 Google Sheets Export with Price Fetching", expanded=True):
+            st.write("**Export all analyses to Google Sheets with optional current price fetching**")
+            
+            # Get analysis archive
+            analysis_archive = qa_system.get_analysis_archive()
+            
+            # Call the update function with UI enabled
+            try:
+                if update_google_sheets_qa_analyses(analysis_archive, show_price_ui=True):
+                    st.success("✅ Successfully exported to Google Sheets!")
+                else:
+                    st.error("❌ Failed to export to Google Sheets")
+            except Exception as e:
+                st.error(f"❌ Export failed: {str(e)}")
+                import traceback
+                st.exception(e)
+            
+            if st.button("❌ Close", key="close_sheets_export"):
+                st.session_state.show_sheets_export = False
+                st.rerun()
     
     # Get data for display
     qa_summary = qa_system.get_qa_summary()
@@ -3692,16 +6511,71 @@ def qa_learning_center_page():
         st.sidebar.write(f"Tickers: {', '.join(tracked_tickers)}")
     
     # Create tabs for different QA views
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
         "📊 Dashboard", 
         "🎯 Tracked Tickers",
         "📚 Complete Archives", 
         "📈 Weekly Reviews", 
-        "🧠 Learning Insights"
+        "🧠 Learning Insights",
+        "🔬 Performance Analysis"
     ])
     
     with tab1:
         st.subheader("📊 System Dashboard")
+        
+        # 🆕 IMPROVEMENT #4: Smart Review Alerts
+        if analysis_archive:
+            from datetime import datetime, timedelta
+            
+            # Calculate stocks needing review
+            stocks_needing_review = []
+            stocks_with_changes = []
+            
+            for ticker, analyses in analysis_archive.items():
+                if len(analyses) > 0:
+                    sorted_analyses = sorted(analyses, key=lambda x: x.timestamp, reverse=True)
+                    latest = sorted_analyses[0]
+                    days_since = (datetime.now() - latest.timestamp).days
+                    
+                    # Alert if not analyzed in 30+ days
+                    if days_since >= 30:
+                        stocks_needing_review.append((ticker, days_since, latest.confidence_score))
+                    
+                    # Alert if significant score change in recent analyses
+                    if len(sorted_analyses) >= 2:
+                        score_change = latest.confidence_score - sorted_analyses[1].confidence_score
+                        if abs(score_change) > 15:
+                            stocks_with_changes.append((ticker, score_change, latest.confidence_score))
+            
+            if stocks_needing_review or stocks_with_changes:
+                st.warning("### ⚠️ Smart Alerts")
+                
+                if stocks_needing_review:
+                    with st.expander(f"🔔 {len(stocks_needing_review)} Stock(s) Need Re-Analysis (30+ days old)", expanded=True):
+                        for ticker, days, score in sorted(stocks_needing_review, key=lambda x: x[1], reverse=True):
+                            col1, col2, col3 = st.columns([2, 2, 1])
+                            with col1:
+                                st.write(f"**{ticker}**")
+                            with col2:
+                                st.write(f"⏰ {days} days since last analysis")
+                            with col3:
+                                st.write(f"Score: {score:.1f}")
+                
+                if stocks_with_changes:
+                    with st.expander(f"📊 {len(stocks_with_changes)} Stock(s) with Significant Score Changes", expanded=True):
+                        for ticker, change, current_score in sorted(stocks_with_changes, key=lambda x: abs(x[1]), reverse=True):
+                            col1, col2, col3 = st.columns([2, 2, 1])
+                            with col1:
+                                st.write(f"**{ticker}**")
+                            with col2:
+                                if change > 0:
+                                    st.success(f"📈 +{change:.1f} points")
+                                else:
+                                    st.error(f"📉 {change:.1f} points")
+                            with col3:
+                                st.write(f"Now: {current_score:.1f}")
+                
+                st.markdown("---")
         
         # Key metrics
         col1, col2, col3, col4, col5 = st.columns(5)
@@ -3722,6 +6596,47 @@ def qa_learning_center_page():
             avg_confidence = analysis_stats['avg_confidence_score']
             st.metric("Avg Confidence", f"{avg_confidence:.1f}/100")
         
+        # Helper function to generalize sector names
+        def generalize_sector(sector_name):
+            """Simplify long sector names into broader categories."""
+            sector = sector_name.upper()
+            
+            # Technology & Software
+            if any(word in sector for word in ['SOFTWARE', 'COMPUTER', 'ELECTRONIC', 'SEMICONDUCTOR', 'TECHNOLOGY']):
+                return 'Technology'
+            # Healthcare & Pharma
+            elif any(word in sector for word in ['PHARMACEUTICAL', 'BIOLOGICAL', 'MEDICAL', 'DRUG', 'HEALTH']):
+                return 'Healthcare'
+            # Finance
+            elif any(word in sector for word in ['BANK', 'FINANCE', 'INSURANCE', 'INVESTMENT', 'CREDIT']):
+                return 'Financials'
+            # Consumer
+            elif any(word in sector for word in ['RETAIL', 'CONSUMER', 'RESTAURANT', 'APPAREL', 'CLOTHING']):
+                return 'Consumer'
+            # Industrial
+            elif any(word in sector for word in ['INDUSTRIAL', 'MACHINERY', 'EQUIPMENT', 'MANUFACTURING', 'CONSTRUCTION']):
+                return 'Industrials'
+            # Energy & Utilities
+            elif any(word in sector for word in ['ENERGY', 'OIL', 'GAS', 'ELECTRIC', 'UTILITY', 'POWER']):
+                return 'Energy & Utilities'
+            # Services
+            elif any(word in sector for word in ['SERVICES', 'CONSULTING', 'MANAGEMENT']):
+                return 'Services'
+            # Transportation
+            elif any(word in sector for word in ['MOTOR', 'VEHICLES', 'AUTO', 'TRANSPORTATION', 'AEROSPACE']):
+                return 'Transportation'
+            # Materials
+            elif any(word in sector for word in ['CHEMICAL', 'MINING', 'METAL', 'MATERIAL']):
+                return 'Materials'
+            # Communication
+            elif any(word in sector for word in ['TELECOM', 'COMMUNICATION', 'MEDIA', 'BROADCASTING']):
+                return 'Communication'
+            # Real Estate
+            elif any(word in sector for word in ['REAL ESTATE', 'REIT', 'PROPERTY']):
+                return 'Real Estate'
+            else:
+                return 'Other'
+        
         # Charts
         if analysis_stats['total_analyses'] > 0:
             col1, col2 = st.columns(2)
@@ -3730,23 +6645,165 @@ def qa_learning_center_page():
                 st.subheader("Recommendation Breakdown")
                 rec_data = analysis_stats['recommendation_breakdown']
                 if rec_data:
-                    fig = px.bar(
-                        x=list(rec_data.keys()),
-                        y=list(rec_data.values()),
-                        title="Analysis Recommendations"
-                    )
-                    st.plotly_chart(fig, use_container_width=True)
+                    import plotly.express as px
+                    
+                    # Simple grouping: Bullish, Neutral, Bearish
+                    bullish = rec_data.get('strong_buy', 0) + rec_data.get('buy', 0)
+                    neutral = rec_data.get('hold', 0)
+                    bearish = rec_data.get('sell', 0) + rec_data.get('strong_sell', 0)
+                    
+                    simple_data = {
+                        'Bullish': bullish,
+                        'Neutral': neutral,
+                        'Bearish': bearish
+                    }
+                    
+                    # Filter out zeros
+                    simple_data = {k: v for k, v in simple_data.items() if v > 0}
+                    
+                    if simple_data:
+                        # Simple bar chart
+                        fig = px.bar(
+                            x=list(simple_data.keys()),
+                            y=list(simple_data.values()),
+                            color=list(simple_data.keys()),
+                            color_discrete_map={
+                                'Bullish': '#22c55e',
+                                'Neutral': '#eab308',
+                                'Bearish': '#ef4444'
+                            },
+                            text=list(simple_data.values())
+                        )
+                        
+                        fig.update_traces(
+                            textposition='outside',
+                            textfont=dict(size=14, color='#333')
+                        )
+                        
+                        fig.update_layout(
+                            showlegend=False,
+                            xaxis_title="",
+                            yaxis_title="Number of Analyses",
+                            height=350,
+                            margin=dict(l=40, r=20, t=40, b=40)
+                        )
+                        
+                        st.plotly_chart(fig, use_container_width=True)
             
             with col2:
                 st.subheader("Sector Distribution")
                 sector_data = analysis_stats['sector_breakdown']
                 if sector_data:
+                    import plotly.express as px
+                    
+                    # Generalize sectors
+                    generalized_sectors = {}
+                    for sector, count in sector_data.items():
+                        gen_sector = generalize_sector(sector)
+                        generalized_sectors[gen_sector] = generalized_sectors.get(gen_sector, 0) + count
+                    
+                    # Sort and get top sectors
+                    sorted_sectors = sorted(generalized_sectors.items(), key=lambda x: x[1], reverse=True)
+                    
+                    # Limit to top 8 sectors, group rest as "Other"
+                    if len(sorted_sectors) > 8:
+                        top_sectors = dict(sorted_sectors[:8])
+                        other_count = sum(count for _, count in sorted_sectors[8:])
+                        if other_count > 0:
+                            top_sectors['Other'] = other_count
+                    else:
+                        top_sectors = dict(sorted_sectors)
+                    
+                    # Simple pie chart
                     fig = px.pie(
-                        values=list(sector_data.values()),
-                        names=list(sector_data.keys()),
-                        title="Sectors Analyzed"
+                        values=list(top_sectors.values()),
+                        names=list(top_sectors.keys()),
+                        color_discrete_sequence=px.colors.qualitative.Set3
                     )
+                    
+                    fig.update_traces(
+                        textposition='inside',
+                        textinfo='label+percent',
+                        textfont=dict(size=12),
+                        marker=dict(line=dict(color='white', width=2))
+                    )
+                    
+                    fig.update_layout(
+                        showlegend=True,
+                        legend=dict(
+                            orientation="h",
+                            yanchor="bottom",
+                            y=-0.2,
+                            xanchor="center",
+                            x=0.5
+                        ),
+                        height=350,
+                        margin=dict(l=20, r=20, t=40, b=80)
+                    )
+                    
                     st.plotly_chart(fig, use_container_width=True)
+        
+        # Biggest Changes Section
+        st.markdown("---")
+        st.subheader("🔥 Biggest Score Changes")
+        st.write("Stocks with the largest score differences between their latest and previous analyses")
+        
+        if analysis_archive:
+            from datetime import datetime
+            
+            # Find stocks with multiple analyses and calculate changes
+            change_data = []
+            for ticker, analyses in analysis_archive.items():
+                if len(analyses) >= 2:
+                    # Sort by timestamp to get latest and previous
+                    sorted_analyses = sorted(analyses, key=lambda x: x.timestamp, reverse=True)
+                    latest = sorted_analyses[0]
+                    previous = sorted_analyses[1]
+                    
+                    score_change = latest.confidence_score - previous.confidence_score
+                    rec_changed = latest.recommendation.value != previous.recommendation.value
+                    
+                    change_data.append({
+                        'ticker': ticker,
+                        'score_change': score_change,
+                        'latest_score': latest.confidence_score,
+                        'previous_score': previous.confidence_score,
+                        'latest_rec': latest.recommendation.value,
+                        'previous_rec': previous.recommendation.value,
+                        'rec_changed': rec_changed,
+                        'price_at_analysis': latest.price_at_analysis,
+                        'days_ago': (datetime.now() - previous.timestamp).days,
+                        'latest_date': latest.timestamp,
+                        'previous_date': previous.timestamp
+                    })
+            
+            if change_data:
+                # Sort by absolute score change
+                change_data.sort(key=lambda x: abs(x['score_change']), reverse=True)
+                top_changes = change_data[:5]
+                
+                for item in top_changes:
+                    change_icon = "📈" if item['score_change'] > 0 else "📉" if item['score_change'] < 0 else "➡️"
+                    rec_icon = "🟢" if item['latest_rec'] in ['strong_buy', 'buy'] else "🔴" if item['latest_rec'] in ['strong_sell', 'sell'] else "🟡"
+                    rec_change_text = f" (was {item['previous_rec'].upper()})" if item['rec_changed'] else ""
+                    
+                    # Price at time of analysis (always show)
+                    price_text = f" | Analysis Price: ${item['price_at_analysis']:.2f}"
+                    
+                    col1, col2, col3 = st.columns([3, 4, 5])
+                    with col1:
+                        st.write(f"**{item['ticker']}**")
+                    with col2:
+                        st.write(f"{change_icon} **{item['score_change']:+.1f}** pts ({item['previous_score']:.1f} → {item['latest_score']:.1f})")
+                    with col3:
+                        st.write(f"{rec_icon} {item['latest_rec'].upper()}{rec_change_text}{price_text}")
+                
+                st.caption(f"Showing top {len(top_changes)} stocks with largest score changes")
+                st.caption("💡 Tip: Use the Google Sheets export to track current prices with auto-refresh")
+            else:
+                st.info("No stocks with multiple analyses yet. Re-analyze stocks to see changes.")
+        else:
+            st.info("No analyses performed yet.")
         
         # Recent Analysis Activity with Ticker Names
         st.markdown("---")
@@ -3781,21 +6838,6 @@ def qa_learning_center_page():
                 st.info("No recent analyses to display")
         else:
             st.info("No analyses performed yet. Start analyzing stocks to see activity here.")
-        
-        # Tracked Tickers Summary with Names
-        if tracked_tickers:
-            st.markdown("---")
-            st.subheader("🎯 Currently Tracked Tickers")
-            st.write(f"**{len(tracked_tickers)} tickers** being monitored for QA tracking:")
-            
-            # Display as a formatted list with additional info
-            for ticker in tracked_tickers:
-                if ticker in st.session_state.qa_system.recommendations:
-                    rec = st.session_state.qa_system.recommendations[ticker]
-                    rec_color = "🟢" if rec.recommendation.value in ['strong_buy', 'buy'] else "🔴" if rec.recommendation.value in ['strong_sell', 'sell'] else "🟡"
-                    st.write(f"• **{ticker}** - {rec_color} {rec.recommendation.value.upper()} ({rec.confidence_score:.1f}/100) - *{rec.timestamp.strftime('%m/%d/%Y')}*")
-                else:
-                    st.write(f"• **{ticker}**")
         
         # Performance tracking (if reviews exist)
         if qa_summary['total_reviews'] > 0:
@@ -3981,11 +7023,112 @@ def qa_learning_center_page():
                     col_del1, col_del2 = st.columns([4, 1])
                     with col_del2:
                         if st.button(f"🗑️ Delete All", key=f"delete_all_{ticker}", help=f"Delete all analyses for {ticker}"):
-                            if ticker in qa_system.all_analyses:
-                                del qa_system.all_analyses[ticker]
-                                qa_system._save_all_analyses()
+                            if qa_system.delete_all_analyses_for_ticker(ticker):
+                                # Auto-sync to Google Sheets if enabled
+                                if st.session_state.get('sheets_enabled', False) and st.session_state.get('sheets_auto_update', False):
+                                    analysis_archive = qa_system.get_analysis_archive()
+                                    update_google_sheets_qa_analyses(analysis_archive, show_price_ui=False)
                                 st.success(f"✅ Deleted all analyses for {ticker}")
                                 st.rerun()
+                            else:
+                                st.error(f"❌ Failed to delete analyses for {ticker}")
+                    
+                    # 🆕 IMPROVEMENT #3: Historical Trend Analysis
+                    if len(analyses) > 1:
+                        st.markdown("### 📈 Historical Trend Analysis")
+                        
+                        # Sort analyses by timestamp
+                        sorted_analyses = sorted(analyses, key=lambda x: x.timestamp)
+                        
+                        # Prepare data for trend chart
+                        dates = [a.timestamp for a in sorted_analyses]
+                        confidence_scores = [a.confidence_score for a in sorted_analyses]
+                        
+                        # Get agent scores if available
+                        has_agent_scores = hasattr(sorted_analyses[0], 'agent_scores') and sorted_analyses[0].agent_scores
+                        
+                        if has_agent_scores:
+                            # Multi-line chart with all agent scores
+                            fig_trend = go.Figure()
+                            
+                            # Add confidence score
+                            fig_trend.add_trace(go.Scatter(
+                                x=dates,
+                                y=confidence_scores,
+                                mode='lines+markers',
+                                name='Final Score',
+                                line=dict(width=3, color='blue'),
+                                marker=dict(size=10)
+                            ))
+                            
+                            # Add agent scores
+                            agent_names = {
+                                'value_agent': 'Value',
+                                'growth_momentum_agent': 'Growth',
+                                'risk_agent': 'Risk',
+                                'sentiment_agent': 'Sentiment',
+                                'macro_regime_agent': 'Macro'
+                            }
+                            
+                            for agent_key, agent_name in agent_names.items():
+                                agent_scores = [a.agent_scores.get(agent_key, None) for a in sorted_analyses if hasattr(a, 'agent_scores') and a.agent_scores]
+                                if agent_scores and all(s is not None for s in agent_scores):
+                                    fig_trend.add_trace(go.Scatter(
+                                        x=dates,
+                                        y=agent_scores,
+                                        mode='lines+markers',
+                                        name=agent_name,
+                                        line=dict(width=2)
+                                    ))
+                            
+                            fig_trend.update_layout(
+                                title=f"{ticker} Score Trends Over Time",
+                                xaxis_title="Analysis Date",
+                                yaxis_title="Score",
+                                yaxis_range=[0, 100],
+                                height=400,
+                                hovermode='x unified'
+                            )
+                            st.plotly_chart(fig_trend, use_container_width=True)
+                            
+                            # Score change analysis
+                            if len(sorted_analyses) >= 2:
+                                latest = sorted_analyses[-1]
+                                previous = sorted_analyses[-2]
+                                score_change = latest.confidence_score - previous.confidence_score
+                                days_between = (latest.timestamp - previous.timestamp).days
+                                
+                                col_change1, col_change2, col_change3 = st.columns(3)
+                                with col_change1:
+                                    st.metric("Latest Score", f"{latest.confidence_score:.1f}", delta=f"{score_change:+.1f}")
+                                with col_change2:
+                                    st.metric("Days Since Last", days_between)
+                                with col_change3:
+                                    if abs(score_change) > 10:
+                                        st.warning(f"⚠️ Significant change: {score_change:+.1f} points")
+                                    elif score_change > 0:
+                                        st.success(f"✅ Improving: {score_change:+.1f} points")
+                                    else:
+                                        st.info(f"📉 Declining: {score_change:.1f} points")
+                        else:
+                            # Simple confidence score trend
+                            fig_simple = go.Figure()
+                            fig_simple.add_trace(go.Scatter(
+                                x=dates,
+                                y=confidence_scores,
+                                mode='lines+markers',
+                                name='Score',
+                                line=dict(width=3),
+                                marker=dict(size=10)
+                            ))
+                            fig_simple.update_layout(
+                                title=f"{ticker} Score Trend",
+                                xaxis_title="Date",
+                                yaxis_title="Score",
+                                yaxis_range=[0, 100],
+                                height=300
+                            )
+                            st.plotly_chart(fig_simple, use_container_width=True)
                     
                     st.markdown("---")
                     
@@ -4005,20 +7148,16 @@ def qa_learning_center_page():
                             # Delete button for this specific analysis
                             unique_key = f"delete_{ticker}_{analysis.timestamp.timestamp()}"
                             if st.button("🗑️", key=unique_key, help="Delete this analysis"):
-                                # Delete this specific analysis by finding it by timestamp
-                                if ticker in qa_system.all_analyses:
-                                    # Find and remove the analysis with matching timestamp
-                                    qa_system.all_analyses[ticker] = [
-                                        a for a in qa_system.all_analyses[ticker] 
-                                        if a.timestamp != analysis.timestamp
-                                    ]
-                                    # If no more analyses for this ticker, remove the ticker entirely
-                                    if not qa_system.all_analyses[ticker]:
-                                        del qa_system.all_analyses[ticker]
-                                    # Save updated data
-                                    qa_system._save_all_analyses()
+                                # Delete this specific analysis
+                                if qa_system.delete_analysis(ticker, analysis.timestamp):
+                                    # Auto-sync to Google Sheets if enabled
+                                    if st.session_state.get('sheets_enabled', False) and st.session_state.get('sheets_auto_update', False):
+                                        analysis_archive = qa_system.get_analysis_archive()
+                                        update_google_sheets_qa_analyses(analysis_archive, show_price_ui=False)
                                     st.success(f"✅ Deleted analysis from {analysis.timestamp.strftime('%Y-%m-%d %H:%M')} for {ticker}")
                                     st.rerun()
+                                else:
+                                    st.error(f"❌ Failed to delete analysis")
                         
                         # Show rationales with collapsible sections
                         if analysis.agent_rationales:
@@ -4222,6 +7361,441 @@ def qa_learning_center_page():
                 "Stocks Due for Review": len(qa_summary['stocks_due_for_review']),
                 "Success Rate": f"{(qa_summary['performance_stats']['better'] / max(qa_summary['total_reviews'], 1) * 100):.1f}%"
             })
+    
+    with tab6:
+        st.subheader("🔬 Performance Analysis & Model Improvement")
+        st.write("**Analyze stocks that moved significantly to identify patterns and improve the model.**")
+        st.markdown("---")
+        
+        # Initialize Performance Analysis Engine
+        try:
+            from utils.performance_analysis_engine import PerformanceAnalysisEngine
+            
+            if 'performance_engine' not in st.session_state:
+                data_provider = st.session_state.data_provider
+                openai_client = st.session_state.get('openai_client')
+                perplexity_client = st.session_state.get('perplexity_client')
+                st.session_state.performance_engine = PerformanceAnalysisEngine(
+                    data_provider, openai_client, perplexity_client
+                )
+            
+            engine = st.session_state.performance_engine
+            
+            # Info box about data source
+            sheets_connected = st.session_state.get('sheets_integration') and st.session_state.sheets_integration.sheet
+            if sheets_connected:
+                st.info("📊 **Using Google Sheets data**: Analysis will use 'Percent Change' from your connected sheet for faster and more accurate movement detection.")
+            else:
+                st.info("📈 **Using price history**: Analysis will fetch historical prices to calculate movements. Connect Google Sheets for faster analysis!")
+            
+            # Configuration section
+            st.write("### 📅 Analysis Period Configuration")
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                analysis_preset = st.selectbox(
+                    "Time Period:",
+                    ["Last 7 Days", "Last 14 Days", "Last 30 Days", "Last 90 Days", "Custom Range"]
+                )
+            
+            # Calculate dates based on preset
+            from datetime import datetime, timedelta
+            end_date = datetime.now()
+            
+            if analysis_preset == "Last 7 Days":
+                start_date = end_date - timedelta(days=7)
+            elif analysis_preset == "Last 14 Days":
+                start_date = end_date - timedelta(days=14)
+            elif analysis_preset == "Last 30 Days":
+                start_date = end_date - timedelta(days=30)
+            elif analysis_preset == "Last 90 Days":
+                start_date = end_date - timedelta(days=90)
+            else:  # Custom Range
+                with col2:
+                    start_date = st.date_input("Start Date:", value=end_date - timedelta(days=30))
+                with col3:
+                    end_date = st.date_input("End Date:", value=end_date)
+            
+            # Convert dates to strings properly
+            from datetime import date
+            if isinstance(start_date, str):
+                start_date_str = start_date
+            elif isinstance(start_date, (datetime, date)):
+                start_date_str = start_date.strftime('%Y-%m-%d') if hasattr(start_date, 'strftime') else str(start_date)
+            elif isinstance(start_date, tuple) and len(start_date) > 0:
+                first_date = start_date[0]
+                start_date_str = first_date.strftime('%Y-%m-%d') if hasattr(first_date, 'strftime') else str(first_date)
+            else:
+                start_date_str = str(start_date)
+            
+            if isinstance(end_date, str):
+                end_date_str = end_date
+            elif isinstance(end_date, (datetime, date)):
+                end_date_str = end_date.strftime('%Y-%m-%d') if hasattr(end_date, 'strftime') else str(end_date)
+            elif isinstance(end_date, tuple) and len(end_date) > 0:
+                first_date = end_date[0]
+                end_date_str = first_date.strftime('%Y-%m-%d') if hasattr(first_date, 'strftime') else str(first_date)
+            else:
+                end_date_str = str(end_date)
+            
+            # Debug options
+            with st.expander("🔧 Advanced Options"):
+                debug_mode = st.checkbox("Enable debug logging (shows all stocks and parsing details)", value=True)
+                custom_threshold = st.slider("Minimum movement threshold (%)", min_value=1.0, max_value=50.0, value=15.0, step=0.5)
+                st.info(f"Will analyze stocks that moved ≥ {custom_threshold}%")
+            
+            st.markdown("---")
+            
+            # Action buttons
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                run_analysis_btn = st.button(
+                    "🚀 Run Performance Analysis",
+                    type="primary",
+                    use_container_width=True,
+                    help="Analyze stock movements and generate model recommendations"
+                )
+            
+            with col2:
+                view_history_btn = st.button(
+                    "📜 View Analysis History",
+                    use_container_width=True,
+                    help="View previous performance analyses"
+                )
+            
+            with col3:
+                view_recommendations_btn = st.button(
+                    "💡 View Recommendations",
+                    use_container_width=True,
+                    help="View model improvement recommendations"
+                )
+            
+            # Run analysis
+            if run_analysis_btn:
+                with st.spinner(f"🔍 Analyzing stock performance from {start_date_str} to {end_date_str}..."):
+                    try:
+                        # Get Google Sheets integration if available
+                        sheets_integration = st.session_state.get('sheets_integration')
+                        
+                        # Check if we can get stocks from sheets
+                        if not sheets_integration or not sheets_integration.sheet:
+                            st.warning("⚠️ Google Sheets not connected. This feature requires Google Sheets to identify stocks with significant movements.")
+                            st.info("💡 Go to System Configuration → Google Sheets Integration to connect your sheet.")
+                        else:
+                            # Get available worksheets first
+                            try:
+                                worksheets = [ws.title for ws in sheets_integration.sheet.worksheets()]
+                                st.info(f"� Available worksheets: {', '.join(worksheets)}")
+                                
+                                # Check if required worksheet exists
+                                required_names = ['Historical Price Analysis', 'Portfolio Analysis', 'Price Analysis']
+                                has_required = any(name in worksheets for name in required_names)
+                                
+                                if not has_required:
+                                    st.error(f"❌ Missing required worksheet!")
+                                    st.error(f"Please create a worksheet named one of: **{', '.join(required_names)}**")
+                                    st.error(f"Current worksheets: {', '.join(worksheets)}")
+                                    st.info("💡 The worksheet must have columns: **Ticker**, **Percent Change** (or **Price at Analysis** + **Price**)")
+                                else:
+                                    st.info(f"�🔍 Scanning all stocks in Google Sheets for movements ≥{custom_threshold}%...")
+                                    
+                                    # Run comprehensive analysis (will auto-detect stocks with significant movement from sheets)
+                                    report = engine.analyze_performance_period(
+                                        start_date_str,
+                                        end_date_str,
+                                        tickers=None,  # Don't filter by tracked - analyze ALL stocks
+                                        qa_system=qa_system,
+                                        sheets_integration=sheets_integration,
+                                        min_threshold=custom_threshold
+                                    )
+                                    
+                                    # Store in session state
+                                    st.session_state.latest_performance_report = report
+                                    
+                                    st.success("✅ Performance analysis complete!")
+                                    st.rerun()
+                            except Exception as check_error:
+                                st.warning(f"Could not check worksheets: {check_error}")
+                                # Continue anyway - let the engine handle it
+                                st.info(f"🔍 Scanning all stocks in Google Sheets for movements ≥{custom_threshold}%...")
+                                
+                                report = engine.analyze_performance_period(
+                                    start_date_str,
+                                    end_date_str,
+                                    tickers=None,
+                                    qa_system=qa_system,
+                                    sheets_integration=sheets_integration,
+                                    min_threshold=custom_threshold
+                                )
+                                
+                                st.session_state.latest_performance_report = report
+                                st.success("✅ Performance analysis complete!")
+                                st.rerun()
+                    
+                    except KeyError as e:
+                        st.error(f"❌ Data error: Missing required field {e}")
+                        st.info("💡 Tip: Ensure your Google Sheets has the required columns (Ticker, Percent Change, or Price at Analysis + Price)")
+                    except Exception as e:
+                        st.error(f"❌ Error during analysis: {e}")
+                        with st.expander("🔍 Debug Information"):
+                            import traceback
+                            st.code(traceback.format_exc())
+                        st.info("💡 Common fixes: Check API keys, verify tracked stocks exist, ensure date range is valid")
+            
+            # Display results if available
+            if 'latest_performance_report' in st.session_state and st.session_state.latest_performance_report:
+                report = st.session_state.latest_performance_report
+                
+                # Handle case where analysis found no movements
+                if report.get('status') == 'no_movements':
+                    st.warning("⚠️ " + report.get('message', 'No significant stock movements detected in this period'))
+                    st.info("💡 Try expanding the date range or lowering movement thresholds")
+                    return
+                
+                st.markdown("---")
+                st.write("## 📊 Analysis Results")
+                
+                # Executive Summary - with safe access
+                if 'executive_summary' in report:
+                    st.info(f"**Executive Summary:** {report['executive_summary']}")
+                
+                # Key Metrics - with safe access
+                if 'summary' in report:
+                    col1, col2, col3, col4 = st.columns(4)
+                    with col1:
+                        st.metric("Total Movements", report['summary'].get('total_movements', 0))
+                    with col2:
+                        st.metric("Analyses Completed", report['summary'].get('analyses_completed', 0))
+                    with col3:
+                        st.metric("Top Gainers", report['summary'].get('top_gainers_count', 0))
+                    with col4:
+                        st.metric("Top Losers", report['summary'].get('top_losers_count', 0))
+                
+                # Top Movers tabs
+                st.markdown("---")
+                movers_tab1, movers_tab2 = st.tabs(["📈 Top Gainers", "📉 Top Losers"])
+                
+                with movers_tab1:
+                    if report['top_gainers']:
+                        st.write("### 🚀 Stocks with Largest Price Increases")
+                        
+                        for i, movement in enumerate(report['top_gainers'][:10], 1):
+                            with st.expander(f"#{i} {movement['ticker']} (+{movement['price_change_pct']:.2f}%) - {movement['magnitude'].upper()}"):
+                                col1, col2 = st.columns(2)
+                                
+                                with col1:
+                                    st.write(f"**Price Movement:**")
+                                    st.write(f"- Start Price: ${movement['start_price']:.2f}")
+                                    st.write(f"- End Price: ${movement['end_price']:.2f}")
+                                    st.write(f"- Change: +${movement['price_change_abs']:.2f} (+{movement['price_change_pct']:.2f}%)")
+                                    if movement.get('volume_change_pct'):
+                                        st.write(f"- Volume Change: {movement['volume_change_pct']:+.1f}%")
+                                
+                                with col2:
+                                    st.write(f"**Details:**")
+                                    st.write(f"- Sector: {movement.get('sector', 'N/A')}")
+                                    if movement.get('market_cap'):
+                                        market_cap_b = movement['market_cap'] / 1e9
+                                        st.write(f"- Market Cap: ${market_cap_b:.1f}B")
+                                    st.write(f"- Period: {movement['start_date']} to {movement['end_date']}")
+                                
+                                # Find corresponding analysis
+                                analysis = next((a for a in report['analyses'] if a['ticker'] == movement['ticker']), None)
+                                if analysis:
+                                    st.write(f"**🔍 Root Cause Analysis:**")
+                                    st.write(f"**Catalyst:** {analysis['catalyst_summary']}")
+                                    st.write(f"**Confidence:** {analysis['confidence']:.0f}%")
+                                    
+                                    if analysis['root_causes']:
+                                        st.write("**Primary Drivers:**")
+                                        for cause in analysis['root_causes']:
+                                            st.write(f"  • {cause}")
+                                    
+                                    # Show flags
+                                    flags = []
+                                    if analysis['earnings_related']:
+                                        flags.append("📊 Earnings")
+                                    if analysis['news_driven']:
+                                        flags.append("📰 News")
+                                    if analysis['sector_driven']:
+                                        flags.append("🏢 Sector")
+                                    if analysis['fundamental_change']:
+                                        flags.append("📈 Fundamental")
+                                    if flags:
+                                        st.write(f"**Flags:** {' | '.join(flags)}")
+                    else:
+                        st.info("No significant gainers in this period")
+                
+                with movers_tab2:
+                    if report['top_losers']:
+                        st.write("### 📉 Stocks with Largest Price Decreases")
+                        
+                        for i, movement in enumerate(report['top_losers'][:10], 1):
+                            with st.expander(f"#{i} {movement['ticker']} ({movement['price_change_pct']:.2f}%) - {movement['magnitude'].upper()}"):
+                                col1, col2 = st.columns(2)
+                                
+                                with col1:
+                                    st.write(f"**Price Movement:**")
+                                    st.write(f"- Start Price: ${movement['start_price']:.2f}")
+                                    st.write(f"- End Price: ${movement['end_price']:.2f}")
+                                    st.write(f"- Change: ${movement['price_change_abs']:.2f} ({movement['price_change_pct']:.2f}%)")
+                                    if movement.get('volume_change_pct'):
+                                        st.write(f"- Volume Change: {movement['volume_change_pct']:+.1f}%")
+                                
+                                with col2:
+                                    st.write(f"**Details:**")
+                                    st.write(f"- Sector: {movement.get('sector', 'N/A')}")
+                                    if movement.get('market_cap'):
+                                        market_cap_b = movement['market_cap'] / 1e9
+                                        st.write(f"- Market Cap: ${market_cap_b:.1f}B")
+                                    st.write(f"- Period: {movement['start_date']} to {movement['end_date']}")
+                                
+                                # Find corresponding analysis
+                                analysis = next((a for a in report['analyses'] if a['ticker'] == movement['ticker']), None)
+                                if analysis:
+                                    st.write(f"**🔍 Root Cause Analysis:**")
+                                    st.write(f"**Catalyst:** {analysis['catalyst_summary']}")
+                                    st.write(f"**Confidence:** {analysis['confidence']:.0f}%")
+                                    
+                                    if analysis['root_causes']:
+                                        st.write("**Primary Drivers:**")
+                                        for cause in analysis['root_causes']:
+                                            st.write(f"  • {cause}")
+                                    
+                                    # Show flags
+                                    flags = []
+                                    if analysis['earnings_related']:
+                                        flags.append("📊 Earnings")
+                                    if analysis['news_driven']:
+                                        flags.append("📰 News")
+                                    if analysis['sector_driven']:
+                                        flags.append("🏢 Sector")
+                                    if analysis['fundamental_change']:
+                                        flags.append("📈 Fundamental")
+                                    if flags:
+                                        st.write(f"**Flags:** {' | '.join(flags)}")
+                    else:
+                        st.info("No significant losers in this period")
+                
+                # Model Recommendations
+                if report['recommendations']:
+                    st.markdown("---")
+                    st.write("## 💡 Model Improvement Recommendations")
+                    st.write(f"**Generated {report['summary']['recommendations_generated']} recommendations** based on observed patterns")
+                    
+                    # Filter by priority
+                    priority_filter = st.multiselect(
+                        "Filter by Priority:",
+                        ["critical", "high", "medium", "low"],
+                        default=["critical", "high"]
+                    )
+                    
+                    filtered_recommendations = [
+                        r for r in report['recommendations']
+                        if r['priority'] in priority_filter
+                    ]
+                    
+                    for i, rec in enumerate(filtered_recommendations, 1):
+                        priority_emoji = {
+                            'critical': '🚨',
+                            'high': '⚠️',
+                            'medium': '💡',
+                            'low': 'ℹ️'
+                        }
+                        
+                        emoji = priority_emoji.get(rec['priority'], '💡')
+                        
+                        with st.expander(f"{emoji} [{rec['priority'].upper()}] {rec['specific_change']}", expanded=(rec['priority'] in ['critical', 'high'])):
+                            col1, col2 = st.columns([2, 1])
+                            
+                            with col1:
+                                st.write(f"**Recommendation:** {rec['specific_change']}")
+                                st.write(f"**Rationale:** {rec['rationale']}")
+                                st.write(f"**Expected Impact:** {rec['expected_impact']}")
+                                
+                                if rec['supporting_evidence']:
+                                    st.write("**Supporting Evidence:**")
+                                    for evidence in rec['supporting_evidence'][:3]:
+                                        st.write(f"  • {evidence}")
+                                
+                                st.write("**Implementation Steps:**")
+                                for step in rec['implementation_steps']:
+                                    st.write(f"  {step}")
+                            
+                            with col2:
+                                st.metric("Confidence", f"{rec['confidence']:.0f}%")
+                                st.write(f"**Category:** {rec['category']}")
+                                st.write(f"**Affected Agents:**")
+                                for agent in rec['affected_agents']:
+                                    st.write(f"  • {agent}")
+                                
+                                # Action buttons
+                                if st.button(f"✅ Mark as Implemented", key=f"implement_{rec['recommendation_id']}"):
+                                    notes = st.text_input("Implementation notes:", key=f"notes_{rec['recommendation_id']}")
+                                    engine.mark_recommendation_implemented(rec['recommendation_id'], notes)
+                                    st.success("Marked as implemented!")
+                
+                # Pattern Analysis
+                if report.get('patterns'):
+                    st.markdown("---")
+                    st.write("## 📊 Pattern Analysis")
+                    
+                    patterns = report['patterns']
+                    col1, col2, col3 = st.columns(3)
+                    
+                    with col1:
+                        st.metric("Earnings-Related", f"{patterns.get('earnings_frequency', 0)*100:.0f}%")
+                        st.metric("News-Driven", f"{patterns.get('news_driven_frequency', 0)*100:.0f}%")
+                    
+                    with col2:
+                        st.metric("Market-Driven", f"{patterns.get('market_driven_frequency', 0)*100:.0f}%")
+                        st.metric("Sector-Driven", f"{patterns.get('sector_driven_frequency', 0)*100:.0f}%")
+                    
+                    with col3:
+                        st.metric("Fundamental Change", f"{patterns.get('fundamental_change_frequency', 0)*100:.0f}%")
+                        st.metric("Technical Breakout", f"{patterns.get('technical_breakout_frequency', 0)*100:.0f}%")
+                    
+                    # Direction breakdown
+                    st.write("**Movement Direction:**")
+                    total_moves = patterns.get('up_movements', 0) + patterns.get('down_movements', 0)
+                    if total_moves > 0:
+                        up_pct = (patterns.get('up_movements', 0) / total_moves) * 100
+                        down_pct = (patterns.get('down_movements', 0) / total_moves) * 100
+                        st.write(f"  • Up movements: {patterns.get('up_movements', 0)} ({up_pct:.1f}%)")
+                        st.write(f"  • Down movements: {patterns.get('down_movements', 0)} ({down_pct:.1f}%)")
+            
+            # View history
+            elif view_history_btn:
+                st.write("### 📜 Analysis History")
+                # TODO: Implement history viewing
+                st.info("Analysis history feature coming soon")
+            
+            # View recommendations
+            elif view_recommendations_btn:
+                st.write("### 💡 All Model Recommendations")
+                latest_recs = engine.get_latest_recommendations(20)
+                
+                if latest_recs:
+                    for rec in latest_recs:
+                        priority_emoji = {'critical': '🚨', 'high': '⚠️', 'medium': '💡', 'low': 'ℹ️'}
+                        emoji = priority_emoji.get(rec.get('priority', 'medium'), '💡')
+                        
+                        with st.expander(f"{emoji} [{rec.get('priority', 'N/A').upper()}] {rec.get('specific_change', 'N/A')}"):
+                            st.write(f"**Recommendation ID:** {rec.get('recommendation_id', 'N/A')}")
+                            st.write(f"**Category:** {rec.get('category', 'N/A')}")
+                            st.write(f"**Rationale:** {rec.get('rationale', 'N/A')}")
+                            st.write(f"**Confidence:** {rec.get('confidence', 0):.0f}%")
+                else:
+                    st.info("No recommendations yet. Run a performance analysis first!")
+        
+        except ImportError as e:
+            st.error(f"❌ Performance Analysis Engine not available: {e}")
+            st.info("The performance analysis feature requires the PerformanceAnalysisEngine module.")
+        except Exception as e:
+            st.error(f"❌ Error initializing Performance Analysis: {e}")
+            import traceback
+            st.code(traceback.format_exc())
 
 
 def system_status_and_ai_disclosure_page():
@@ -4497,6 +8071,233 @@ Key constraints:
 The client has expressed interest in technology, healthcare, and renewable energy sectors...""",
             help="Paste the detailed client profile text here. The system will parse this and update the IPS automatically."
         )
+        
+        if st.button("📝 Parse and Update IPS"):
+            if client_profile:
+                st.info("Manual parsing of client profile text is not yet implemented. Please configure IPS directly in the next tab.")
+            else:
+                st.warning("Please enter a client profile first.")
+    
+    with tab2:
+        st.subheader("IPS Configuration")
+        st.write("Configure Investment Policy Statement constraints.")
+        
+        # Load current IPS
+        ips = st.session_state.config_loader.load_ips()
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.write("**Position & Sector Constraints:**")
+            max_position = st.number_input(
+                "Max Single Position (%)", 
+                value=float(ips.get('position_limits', {}).get('max_position_pct', 10.0)), 
+                min_value=1.0, 
+                max_value=50.0
+            )
+            max_sector = st.number_input(
+                "Max Sector Allocation (%)", 
+                value=float(ips.get('position_limits', {}).get('max_sector_pct', 30.0)), 
+                min_value=10.0, 
+                max_value=100.0
+            )
+            
+            st.write("**Price & Market Cap:**")
+            min_price = st.number_input(
+                "Min Stock Price ($)", 
+                value=float(ips.get('universe', {}).get('min_price', 1.0)), 
+                min_value=0.0
+            )
+            min_market_cap = st.number_input(
+                "Min Market Cap ($B)", 
+                value=float(ips.get('universe', {}).get('min_market_cap', 1000000000)) / 1000000000, 
+                min_value=0.0
+            )
+        
+        with col2:
+            st.write("**Risk Parameters:**")
+            min_beta = st.number_input(
+                "Min Beta", 
+                value=float(ips.get('portfolio_constraints', {}).get('beta_min', 0.7)), 
+                min_value=0.0, 
+                max_value=3.0
+            )
+            max_beta = st.number_input(
+                "Max Beta", 
+                value=float(ips.get('portfolio_constraints', {}).get('beta_max', 1.3)), 
+                min_value=0.0, 
+                max_value=3.0
+            )
+            max_volatility = st.number_input(
+                "Max Portfolio Volatility (%)", 
+                value=float(ips.get('portfolio_constraints', {}).get('max_portfolio_volatility', 18.0)), 
+                min_value=0.0, 
+                max_value=50.0
+            )
+        
+        st.write("**Excluded Sectors:**")
+        current_exclusions = ips.get('exclusions', {}).get('sectors', [])
+        excluded_sectors = st.multiselect(
+            "Select sectors to exclude",
+            options=["Energy", "Financials", "Healthcare", "Technology", "Consumer Staples", "Consumer Discretionary", 
+                    "Industrials", "Materials", "Real Estate", "Utilities", "Communication Services", "Tobacco", "Weapons"],
+            default=current_exclusions
+        )
+        
+        if st.button("💾 Save IPS Configuration"):
+            # Update IPS with proper structure
+            if 'position_limits' not in ips:
+                ips['position_limits'] = {}
+            ips['position_limits']['max_position_pct'] = max_position
+            ips['position_limits']['max_sector_pct'] = max_sector
+            
+            if 'universe' not in ips:
+                ips['universe'] = {}
+            ips['universe']['min_price'] = min_price
+            ips['universe']['min_market_cap'] = min_market_cap * 1000000000
+            
+            if 'portfolio_constraints' not in ips:
+                ips['portfolio_constraints'] = {}
+            ips['portfolio_constraints']['beta_min'] = min_beta
+            ips['portfolio_constraints']['beta_max'] = max_beta
+            ips['portfolio_constraints']['max_portfolio_volatility'] = max_volatility
+            
+            if 'exclusions' not in ips:
+                ips['exclusions'] = {}
+            ips['exclusions']['sectors'] = excluded_sectors
+            
+            st.session_state.config_loader.save_ips(ips)
+            st.success("✅ IPS configuration saved!")
+    
+    with tab3:
+        st.subheader("Agent Weights")
+        st.write("Adjust how much each agent influences the final score.")
+        
+        # Load current weights
+        model_config = st.session_state.config_loader.load_model_config()
+        weights = model_config['agent_weights']
+        
+        new_weights = {}
+        for agent, weight in weights.items():
+            new_weights[agent] = st.slider(
+                f"{agent.replace('_', ' ').title()}",
+                min_value=0.0,
+                max_value=3.0,
+                value=float(weight),
+                step=0.1,
+                help=f"Current weight: {weight}"
+            )
+        
+        if st.button("Save Agent Weights"):
+            st.session_state.config_loader.update_model_weights(new_weights)
+            st.success("✅ Agent weights updated!")
+            st.info("ℹ️ System will be reinitialized on next analysis.")
+            st.session_state.initialized = False
+    
+    with tab4:
+        st.subheader("⏱️ Analysis Timing Analytics")
+        st.write("Deep insights into step-level timing data collected from all analyses.")
+        
+        if hasattr(st.session_state, 'step_time_manager'):
+            manager = st.session_state.step_time_manager
+            
+            # Summary statistics
+            col1, col2, col3 = st.columns(3)
+            
+            total_samples = sum(len(manager.step_times.get(i, [])) for i in range(1, 11))
+            all_stats = manager.get_all_stats()
+            
+            with col1:
+                st.metric("Total Data Points", f"{total_samples:,}")
+            
+            with col2:
+                steps_tracked = len(all_stats)
+                st.metric("Steps Tracked", f"{steps_tracked}/10")
+            
+            with col3:
+                if all_stats:
+                    avg_analysis_time = sum(s['avg'] for s in all_stats.values())
+                    st.metric("Est. Analysis Time", f"{avg_analysis_time:.1f}s")
+                else:
+                    st.metric("Est. Analysis Time", "No data")
+            
+            st.markdown("---")
+            
+            # Detailed step breakdown
+            st.subheader("📊 Step-by-Step Breakdown")
+            
+            step_names = {
+                1: "📥 Data Gathering - Fundamentals",
+                2: "📈 Data Gathering - Market Data",
+                3: "💰 Value Agent Analysis",
+                4: "📊 Growth/Momentum Agent Analysis",
+                5: "🌍 Macro Regime Agent Analysis",
+                6: "⚠️ Risk Agent Analysis",
+                7: "💭 Sentiment Agent Analysis",
+                8: "⚖️ Score Blending",
+                9: "✅ Client Layer Validation",
+                10: "🎯 Final Analysis"
+            }
+            
+            if all_stats:
+                for step in sorted(all_stats.keys()):
+                    stats = all_stats[step]
+                    name = step_names.get(step, f"Step {step}")
+                    
+                    with st.expander(f"**{name}**", expanded=False):
+                        col1, col2, col3, col4 = st.columns(4)
+                        
+                        with col1:
+                            st.metric("Samples", stats['count'])
+                            st.metric("Average", f"{stats['avg']:.2f}s")
+                        
+                        with col2:
+                            st.metric("Median", f"{stats['median']:.2f}s")
+                            st.metric("Std Dev", f"{stats['std_dev']:.2f}s")
+                        
+                        with col3:
+                            st.metric("Minimum", f"{stats['min']:.2f}s")
+                            st.metric("Maximum", f"{stats['max']:.2f}s")
+                        
+                        with col4:
+                            st.metric("25th %ile", f"{stats['p25']:.2f}s")
+                            st.metric("75th %ile", f"{stats['p75']:.2f}s")
+                
+                st.markdown("---")
+                
+                # Export option
+                if st.button("📥 Export Timing Data"):
+                    import pandas as pd
+                    from datetime import datetime
+                    
+                    export_data = []
+                    for step, stats in all_stats.items():
+                        export_data.append({
+                            'Step': step,
+                            'Name': step_names.get(step, f"Step {step}"),
+                            'Count': stats['count'],
+                            'Average': stats['avg'],
+                            'Median': stats['median'],
+                            'Std_Dev': stats['std_dev'],
+                            'Min': stats['min'],
+                            'Max': stats['max'],
+                            'P25': stats['p25'],
+                            'P75': stats['p75']
+                        })
+                    
+                    df = pd.DataFrame(export_data)
+                    csv_data = df.to_csv(index=False)
+                    
+                    st.download_button(
+                        label="Download Timing Data CSV",
+                        data=csv_data,
+                        file_name=f"timing_analytics_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                        mime="text/csv"
+                    )
+            else:
+                st.info("No timing data available yet. Run some analyses to collect timing statistics.")
+        else:
+            st.warning("Step time manager not initialized.")
 
 
 # Duplicate function removed - configuration_page defined above
@@ -4607,13 +8408,13 @@ def update_google_sheets_portfolio(result: dict) -> bool:
                     round(stock.get('agent_scores', {}).get('risk_agent', 0), 1),
                     round(stock.get('agent_scores', {}).get('sentiment_agent', 0), 1),
                     round(stock.get('agent_scores', {}).get('client_layer_agent', 0), 1),
-                    stock.get('agent_rationales', {}).get('value_agent', '')[:200],
-                    stock.get('agent_rationales', {}).get('growth_momentum_agent', '')[:200],
-                    stock.get('agent_rationales', {}).get('macro_regime_agent', '')[:200],
-                    stock.get('agent_rationales', {}).get('risk_agent', '')[:200],
-                    stock.get('agent_rationales', {}).get('sentiment_agent', '')[:200],
-                    stock.get('agent_rationales', {}).get('client_layer_agent', '')[:200],
-                    stock.get('rationale', '')[:300],
+                    stock.get('agent_rationales', {}).get('value_agent', '')[:1000],
+                    stock.get('agent_rationales', {}).get('growth_momentum_agent', '')[:1000],
+                    stock.get('agent_rationales', {}).get('macro_regime_agent', '')[:1000],
+                    stock.get('agent_rationales', {}).get('risk_agent', '')[:1000],
+                    stock.get('agent_rationales', {}).get('sentiment_agent', '')[:1000],
+                    stock.get('agent_rationales', {}).get('client_layer_agent', '')[:1000],
+                    stock.get('rationale', '')[:1500],
                     stock['fundamentals'].get('pe_ratio', 0),
                     stock['fundamentals'].get('pb_ratio', 0),
                     stock['fundamentals'].get('roe', 0),
@@ -4641,12 +8442,292 @@ def update_google_sheets_portfolio(result: dict) -> bool:
         return False
 
 
-def update_google_sheets_qa_analyses(analysis_archive: dict) -> bool:
+# Configuration page code ends here
+# Google Sheets integration functions defined below
+# (Note: sync_all_archives_to_sheets is already defined earlier in file)
+
+    with tab2:
+        st.subheader("Investment Policy Statement")        # Load current IPS
+        ips = st.session_state.config_loader.load_ips()
+        
+        # Client information
+        st.write("**Client Information**")
+        col1, col2 = st.columns(2)
+        with col1:
+            client_name = st.text_input("Client Name", value=ips['client']['name'])
+            
+            # Enhanced risk tolerance options to match MTWB Foundation profile
+            risk_options = ["low", "moderate", "moderate-aggressive", "high", "very-high"]
+            current_risk = ips['client']['risk_tolerance']
+            
+            # Handle risk tolerance safely
+            try:
+                risk_index = risk_options.index(current_risk)
+            except ValueError:
+                # If the current risk isn't in our list, default to moderate and show warning
+                st.warning(f"⚠️ Unknown risk tolerance '{current_risk}', defaulting to 'moderate'")
+                risk_index = 1  # moderate
+            
+            risk_tolerance = st.selectbox(
+                "Risk Tolerance",
+                risk_options,
+                index=risk_index,
+                help="Risk tolerance level for investment strategy"
+            )
+        with col2:
+            time_horizon = st.number_input(
+                "Time Horizon (years)",
+                min_value=1,
+                max_value=30,
+                value=ips['client']['time_horizon_years']
+            )
+            cash_buffer = st.number_input(
+                "Cash Buffer (%)",
+                min_value=0,
+                max_value=50,
+                value=ips['client']['cash_buffer_pct']
+            )
+        
+        # Position limits
+        st.write("**Position Limits**")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            max_position = st.number_input(
+                "Max Position (%)",
+                min_value=1,
+                max_value=50,
+                value=ips['position_limits']['max_position_pct']
+            )
+        with col2:
+            max_sector = st.number_input(
+                "Max Sector (%)",
+                min_value=5,
+                max_value=100,
+                value=ips['position_limits']['max_sector_pct']
+            )
+        with col3:
+            max_industry = st.number_input(
+                "Max Industry (%)",
+                min_value=5,
+                max_value=100,
+                value=ips['position_limits']['max_industry_pct']
+            )
+        
+        if st.button("Save IPS Configuration"):
+            # Update IPS
+            ips['client']['name'] = client_name
+            ips['client']['risk_tolerance'] = risk_tolerance
+            ips['client']['time_horizon_years'] = time_horizon
+            ips['client']['cash_buffer_pct'] = cash_buffer
+            ips['position_limits']['max_position_pct'] = max_position
+            ips['position_limits']['max_sector_pct'] = max_sector
+            ips['position_limits']['max_industry_pct'] = max_industry
+            
+            st.session_state.config_loader.save_ips(ips)
+            st.success("✅ IPS configuration saved!")
+    
+    with tab3:
+        st.subheader("Agent Weights")
+        st.write("Adjust how much each agent influences the final score.")
+        
+        # Load current weights
+        model_config = st.session_state.config_loader.load_model_config()
+        weights = model_config['agent_weights']
+        
+        new_weights = {}
+        for agent, weight in weights.items():
+            new_weights[agent] = st.slider(
+                f"{agent.replace('_', ' ').title()}",
+                min_value=0.0,
+                max_value=3.0,
+                value=float(weight),
+                step=0.1,
+                help=f"Current weight: {weight}"
+            )
+        
+        if st.button("Save Agent Weights"):
+            st.session_state.config_loader.update_model_weights(new_weights)
+            st.success("✅ Agent weights updated!")
+            st.info("ℹ️ System will be reinitialized on next analysis.")
+            st.session_state.initialized = False
+    
+    with tab4:
+        st.subheader("⏱️ Analysis Timing Analytics")
+        st.write("Deep insights into step-level timing data collected from all analyses.")
+        
+        if hasattr(st.session_state, 'step_time_manager'):
+            manager = st.session_state.step_time_manager
+            
+            # Summary statistics
+            col1, col2, col3 = st.columns(3)
+            
+            total_samples = sum(len(manager.step_times.get(i, [])) for i in range(1, 11))
+            all_stats = manager.get_all_stats()
+            
+            with col1:
+                st.metric("Total Data Points", f"{total_samples:,}")
+            
+            with col2:
+                steps_tracked = len(all_stats)
+                st.metric("Steps Tracked", f"{steps_tracked}/10")
+            
+            with col3:
+                if all_stats:
+                    avg_analysis_time = sum(s['avg'] for s in all_stats.values())
+                    st.metric("Est. Analysis Time", f"{avg_analysis_time:.1f}s")
+                else:
+                    st.metric("Est. Analysis Time", "No data")
+            
+            st.markdown("---")
+            
+            # Detailed step breakdown
+            st.subheader("📊 Step-by-Step Breakdown")
+            
+            step_names = {
+                1: "📥 Data Gathering - Fundamentals",
+                2: "📈 Data Gathering - Market Data",
+                3: "💰 Value Agent Analysis",
+                4: "📊 Growth/Momentum Agent Analysis",
+                5: "🌍 Macro Regime Agent Analysis",
+                6: "⚠️ Risk Agent Analysis",
+                7: "💭 Sentiment Agent Analysis",
+                8: "⚖️ Score Blending",
+                9: "✅ Client Layer Validation",
+                10: "🎯 Final Analysis"
+            }
+            
+            if all_stats:
+                for step in sorted(all_stats.keys()):
+                    stats = all_stats[step]
+                    name = step_names.get(step, f"Step {step}")
+                    
+                    with st.expander(f"**{name}**", expanded=False):
+                        col1, col2, col3, col4 = st.columns(4)
+                        
+                        with col1:
+                            st.metric("Samples", stats['count'])
+                            st.metric("Average", f"{stats['avg']:.2f}s")
+                        
+                        with col2:
+                            st.metric("Median", f"{stats['median']:.2f}s")
+                            st.metric("Std Dev", f"{stats['std_dev']:.2f}s")
+                        
+                        with col3:
+                            st.metric("Minimum", f"{stats['min']:.2f}s")
+                            st.metric("25th %ile", f"{stats['p25']:.2f}s")
+                        
+                        with col4:
+                            st.metric("Maximum", f"{stats['max']:.2f}s")
+                            st.metric("75th %ile", f"{stats['p75']:.2f}s")
+                        
+                        # Visualization
+                        if step in manager.step_times and len(manager.step_times[step]) > 1:
+                            import pandas as pd
+                            import plotly.graph_objects as go
+                            
+                            times = manager.step_times[step]
+                            
+                            # Create histogram
+                            fig = go.Figure(data=[go.Histogram(x=times, nbinsx=20)])
+                            fig.update_layout(
+                                title=f"Distribution of {name} Times",
+                                xaxis_title="Duration (seconds)",
+                                yaxis_title="Frequency",
+                                height=300
+                            )
+                            st.plotly_chart(fig, use_container_width=True)
+                
+                # Overall timing chart
+                st.markdown("---")
+                st.subheader("📈 Overall Step Timing Comparison")
+                
+                import pandas as pd
+                import plotly.graph_objects as go
+                
+                step_data = []
+                for step in sorted(all_stats.keys()):
+                    stats = all_stats[step]
+                    step_data.append({
+                        'Step': f"Step {step}",
+                        'Name': step_names.get(step, f"Step {step}").split(' ', 1)[1] if step in step_names else f"Step {step}",
+                        'Average': stats['avg'],
+                        'Min': stats['min'],
+                        'Max': stats['max'],
+                        'P25': stats['p25'],
+                        'P75': stats['p75']
+                    })
+                
+                df = pd.DataFrame(step_data)
+                
+                # Box plot style chart
+                fig = go.Figure()
+                
+                for idx, row in df.iterrows():
+                    fig.add_trace(go.Box(
+                        x=[row['Name']],
+                        q1=[row['P25']],
+                        median=[row['Average']],
+                        q3=[row['P75']],
+                        lowerfence=[row['Min']],
+                        upperfence=[row['Max']],
+                        name=row['Step']
+                    ))
+                
+                fig.update_layout(
+                    title="Step Duration Distribution (Box Plot)",
+                    xaxis_title="Analysis Step",
+                    yaxis_title="Duration (seconds)",
+                    height=400,
+                    showlegend=False
+                )
+                st.plotly_chart(fig, use_container_width=True)
+                
+            else:
+                st.info("📊 No timing data collected yet. Run some analyses to build the timing model!")
+            
+            st.markdown("---")
+            
+            # Raw data download
+            col1, col2 = st.columns([3, 1])
+            
+            with col1:
+                st.write("**Export Timing Data**")
+                st.caption("Download raw timing data for external analysis")
+            
+            with col2:
+                if st.button("📥 Download JSON"):
+                    import json
+                    timing_export = {
+                        'step_times': {str(k): v for k, v in manager.step_times.items()},
+                        'step_stats': {str(k): v for k, v in manager.step_stats.items()},
+                        'exported_at': datetime.now().isoformat()
+                    }
+                    
+                    st.download_button(
+                        label="💾 Save Timing Data",
+                        data=json.dumps(timing_export, indent=2),
+                        file_name=f"step_timing_data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+                        mime="application/json"
+                    )
+            
+            # Force save button
+            if st.button("💾 Force Save Timing Data to Disk"):
+                manager.force_save()
+                st.success("✅ Timing data saved to disk!")
+        
+        else:
+            st.warning("⚠️ Step Time Manager not initialized. Please restart the application.")
+
+
+
+def update_google_sheets_qa_analyses(analysis_archive: dict, show_price_ui: bool = False) -> bool:
     """
     Update Google Sheets with QA analyses.
+    Uses specific column order matching user's format.
     
     Args:
         analysis_archive: Dictionary of analyses by ticker
+        show_price_ui: If True, shows UI for fetching current prices (for manual exports)
         
     Returns:
         True if successful, False otherwise
@@ -4657,44 +8738,447 @@ def update_google_sheets_qa_analyses(analysis_archive: dict) -> bool:
         if not sheets_integration or not sheets_integration.sheet:
             return False
         
-        # Convert analysis_archive to list format
+        import math
+        import pandas as pd
+        import time
+        
+        def safe_float(value, decimals=2):
+            """Keep numeric values as numbers, handling NaN and Infinity."""
+            if value is None:
+                return None
+            if isinstance(value, (int, float)):
+                if math.isnan(value) or math.isinf(value):
+                    return None
+                # Round to specified decimals but keep as number
+                return round(value, decimals)
+            # Try to convert string to float
+            try:
+                num = float(value)
+                if math.isnan(num) or math.isinf(num):
+                    return None
+                return round(num, decimals)
+            except (ValueError, TypeError):
+                return None
+        
+        def safe_value(value):
+            """Safely convert text values, keeping None for missing data."""
+            if value is None:
+                return None
+            if isinstance(value, str):
+                return value if value.strip() else None
+            return str(value)
+        
+        # ENHANCED: Get current prices using ALL Polygon.io features for maximum speed and coverage
+        def get_bulk_prices_polygon(tickers):
+            """
+            Fetch current prices for multiple tickers using Polygon.io with multiple strategies.
+            Leverages: Snapshot API, Aggregates API, Reference Data, and parallel processing.
+            With unlimited API calls, we maximize speed and coverage.
+            """
+            import requests
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+            from datetime import datetime, timedelta
+            
+            polygon_key = os.getenv('POLYGON_API_KEY')
+            if not polygon_key:
+                logger.warning("Polygon API key not found, skipping price fetch")
+                return {}
+            
+            prices = {}
+            failed_tickers = []
+            
+            # STRATEGY 1: Snapshot API (fastest for bulk - gets all tickers at once)
+            def fetch_all_snapshots():
+                """Fetch ALL ticker snapshots at once."""
+                all_prices = {}
+                try:
+                    # Get all tickers snapshot in ONE call
+                    url = f'https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?apiKey={polygon_key}'
+                    response = requests.get(url, timeout=20)
+                    data = response.json()
+                    
+                    if data.get('status') == 'OK' and data.get('tickers'):
+                        ticker_map = {t.upper(): t for t in tickers}  # Handle case sensitivity
+                        
+                        for ticker_data in data['tickers']:
+                            ticker_symbol = ticker_data.get('ticker', '').upper()
+                            
+                            # Only process tickers we're interested in
+                            if ticker_symbol in ticker_map:
+                                price = None
+                                
+                                # Priority 1: Use day close (most recent intraday close)
+                                if ticker_data.get('day') and ticker_data['day'].get('c'):
+                                    price = float(ticker_data['day']['c'])
+                                
+                                # Priority 2: Use last trade price (real-time)
+                                elif ticker_data.get('lastTrade') and ticker_data['lastTrade'].get('p'):
+                                    price = float(ticker_data['lastTrade']['p'])
+                                
+                                # Priority 3: Use previous day close
+                                elif ticker_data.get('prevDay') and ticker_data['prevDay'].get('c'):
+                                    price = float(ticker_data['prevDay']['c'])
+                                
+                                # Priority 4: Use minute aggregates (most recent minute)
+                                elif ticker_data.get('min') and ticker_data['min'].get('c'):
+                                    price = float(ticker_data['min']['c'])
+                                
+                                if price and price > 0:
+                                    all_prices[ticker_map[ticker_symbol]] = price
+                                    logger.info(f"✅ {ticker_symbol}: ${price:.2f}")
+                        
+                        logger.info(f"Snapshot API fetched {len(all_prices)}/{len(tickers)} prices")
+                
+                except Exception as e:
+                    logger.warning(f"Snapshot API error: {e}")
+                
+                return all_prices
+            
+            # STRATEGY 2: Individual ticker snapshots (for specific tickers)
+            def fetch_ticker_snapshot(ticker):
+                """Fetch snapshot for a single ticker."""
+                try:
+                    url = f'https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers/{ticker}?apiKey={polygon_key}'
+                    response = requests.get(url, timeout=10)
+                    data = response.json()
+                    
+                    if data.get('status') == 'OK' and data.get('ticker'):
+                        ticker_data = data['ticker']
+                        
+                        # Try multiple price sources
+                        if ticker_data.get('day') and ticker_data['day'].get('c'):
+                            return float(ticker_data['day']['c'])
+                        elif ticker_data.get('lastTrade') and ticker_data['lastTrade'].get('p'):
+                            return float(ticker_data['lastTrade']['p'])
+                        elif ticker_data.get('prevDay') and ticker_data['prevDay'].get('c'):
+                            return float(ticker_data['prevDay']['c'])
+                        elif ticker_data.get('min') and ticker_data['min'].get('c'):
+                            return float(ticker_data['min']['c'])
+                
+                except Exception as e:
+                    logger.debug(f"Snapshot failed for {ticker}: {e}")
+                
+                return None
+            
+            # STRATEGY 3: Aggregates (previous close - most reliable)
+            def fetch_previous_close(ticker):
+                """Fetch previous day close using Aggregates API."""
+                try:
+                    url = f'https://api.polygon.io/v2/aggs/ticker/{ticker}/prev?adjusted=true&apiKey={polygon_key}'
+                    response = requests.get(url, timeout=10)
+                    data = response.json()
+                    
+                    if data.get('status') == 'OK' and data.get('results') and len(data['results']) > 0:
+                        return float(data['results'][0]['c'])
+                
+                except Exception as e:
+                    logger.debug(f"Aggregates failed for {ticker}: {e}")
+                
+                return None
+            
+            # STRATEGY 4: Daily open close (today or last trading day)
+            def fetch_daily_open_close(ticker):
+                """Fetch today's open/close or last trading day."""
+                try:
+                    # Try today first
+                    today = datetime.now().strftime('%Y-%m-%d')
+                    url = f'https://api.polygon.io/v1/open-close/{ticker}/{today}?adjusted=true&apiKey={polygon_key}'
+                    response = requests.get(url, timeout=10)
+                    data = response.json()
+                    
+                    if data.get('status') == 'OK' and data.get('close'):
+                        return float(data['close'])
+                    
+                    # Try yesterday if today not available
+                    yesterday = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
+                    url = f'https://api.polygon.io/v1/open-close/{ticker}/{yesterday}?adjusted=true&apiKey={polygon_key}'
+                    response = requests.get(url, timeout=10)
+                    data = response.json()
+                    
+                    if data.get('status') == 'OK' and data.get('close'):
+                        return float(data['close'])
+                
+                except Exception as e:
+                    logger.debug(f"Daily open-close failed for {ticker}: {e}")
+                
+                return None
+            
+            # STEP 1: Try to get ALL prices at once using Snapshot API (fastest)
+            logger.info("🚀 Fetching all prices using Snapshot API...")
+            prices = fetch_all_snapshots()
+            
+            # STEP 2: For missing tickers, use parallel individual requests with fallback strategies
+            missing_tickers = [t for t in tickers if t not in prices]
+            
+            if missing_tickers:
+                logger.info(f"📊 Fetching {len(missing_tickers)} missing tickers using multiple strategies...")
+                
+                def fetch_with_fallback(ticker):
+                    """Try multiple strategies to get price for a ticker."""
+                    # Strategy 1: Individual snapshot
+                    price = fetch_ticker_snapshot(ticker)
+                    if price:
+                        return ticker, price
+                    
+                    # Strategy 2: Previous close aggregates
+                    price = fetch_previous_close(ticker)
+                    if price:
+                        return ticker, price
+                    
+                    # Strategy 3: Daily open-close
+                    price = fetch_daily_open_close(ticker)
+                    if price:
+                        return ticker, price
+                    
+                    return ticker, None
+                
+                # Use parallel processing with unlimited API calls
+                with ThreadPoolExecutor(max_workers=20) as executor:
+                    future_to_ticker = {executor.submit(fetch_with_fallback, ticker): ticker for ticker in missing_tickers}
+                    
+                    for future in as_completed(future_to_ticker):
+                        ticker, price = future.result()
+                        if price and price > 0:
+                            prices[ticker] = price
+                            logger.info(f"✅ {ticker}: ${price:.2f}")
+                        else:
+                            failed_tickers.append(ticker)
+            
+            # Log results
+            success_count = len(prices)
+            total_count = len(tickers)
+            logger.info(f"✅ Price fetch complete: {success_count}/{total_count} successful")
+            
+            if failed_tickers:
+                logger.warning(f"⚠️ Failed to fetch prices for: {', '.join(failed_tickers)}")
+            
+            return prices
+        
+        # Fallback function for individual ticker price fetch (simplified - relies on get_bulk_prices_polygon)
+        def get_single_price_polygon(ticker):
+            """Fetch price for a single ticker - uses bulk function for consistency."""
+            result = get_bulk_prices_polygon([ticker])
+            return result.get(ticker, 0)
+        
+        # Prepare QA data
         qa_data = []
-        for ticker, analyses_list in analysis_archive.items():
-            if not analyses_list:
-                continue
-            
-            # Get most recent analysis for this ticker
-            analysis = analyses_list[-1] if isinstance(analyses_list, list) else analyses_list
-            
-            # Build comprehensive row
-            fundamentals = analysis.fundamentals if hasattr(analysis, 'fundamentals') else {}
-            agent_scores = analysis.agent_scores if hasattr(analysis, 'agent_scores') else {}
-            agent_rationales = analysis.agent_rationales if hasattr(analysis, 'agent_rationales') else {}
-            
-            row = {
-                'Ticker': ticker,
-                'Recommendation': analysis.recommendation.value if hasattr(analysis, 'recommendation') else 'N/A',
-                'Confidence Score': round(analysis.confidence_score, 1) if hasattr(analysis, 'confidence_score') else 0,
-                'Price at Analysis': fundamentals.get('price', 0) if isinstance(fundamentals, dict) else 0,
-                'Timestamp': analysis.timestamp.strftime('%Y-%m-%d %H:%M:%S') if hasattr(analysis, 'timestamp') else '',
-            }
-            qa_data.append(row)
+        unique_tickers = list(analysis_archive.keys())
         
-        if not qa_data:
-            return True
+        # Automatically fetch current prices
+        ticker_prices = {}
+        fetch_prices = True  # Always fetch prices by default
         
-        # Update worksheet
-        column_order = ['Ticker', 'Recommendation', 'Confidence Score', 'Price at Analysis', 'Timestamp']
-        success = sheets_integration.update_qa_analyses(
-            qa_data,
-            worksheet_name="QA Analyses",
-            column_order=column_order
-        )
+        # Show price fetching info UI if explicitly requested (for manual exports)
+        if show_price_ui:
+            # Determine which API to use
+            has_polygon = bool(os.getenv('POLYGON_API_KEY'))
+            
+            if has_polygon:
+                # Calculate time estimate for bulk API (MUCH faster!)
+                num_batches = (len(unique_tickers) + 14) // 15  # 15 tickers per batch
+                estimated_time = max(2, num_batches * 0.5)  # ~0.5s per batch with parallel requests
+                api_source = "Polygon.io Snapshot API (Bulk + Parallel)"
+            else:
+                # Fallback to slower sequential fetch
+                estimated_time = len(unique_tickers) * 0.6
+                api_source = "Yahoo Finance (Sequential)"
+            
+            # Show info about price fetching (enabled by default)
+            st.info(f"💡 **Fetching current prices from {api_source}** (Est. time: ~{int(estimated_time)}s)")
+            
+            col1, col2 = st.columns([3, 1])
+            with col1:
+                st.write(f"**Price API:** {api_source}")
+                if not has_polygon:
+                    st.caption("⚠️ Using Yahoo Finance (slow, sequential). Set POLYGON_API_KEY for 10x faster bulk fetching!")
+                else:
+                    st.caption(f"✅ Using Polygon.io with Unlimited API Calls - Fetching {len(unique_tickers)} prices in parallel!")
+            with col2:
+                st.write(f"**Est. Time:** ~{int(estimated_time)}s")
+            
+            # Option to skip price fetching if desired
+            skip_prices = st.checkbox(
+                f"⏭️ Skip Price Fetching",
+                value=False,
+                help="Check this to skip fetching new prices. Will use last documented prices from previous exports when available."
+            )
+            if skip_prices:
+                fetch_prices = False
         
-        return success
+        if fetch_prices:
+            has_polygon = bool(os.getenv('POLYGON_API_KEY'))
+            
+            # Add progress indicator for price fetching
+            price_progress = st.empty()
+            price_status = st.empty()
+            
+            if has_polygon:
+                # FAST PATH: Use Polygon Snapshot API with parallel requests
+                price_status.text(f"🚀 Fetching {len(unique_tickers)} prices in parallel using Polygon Snapshot API...")
+                
+                import time
+                start_time = time.time()
+                ticker_prices = get_bulk_prices_polygon(unique_tickers)
+                elapsed = time.time() - start_time
+                
+                # Fill in any missing prices with individual calls
+                missing_tickers = [t for t in unique_tickers if t not in ticker_prices]
+                if missing_tickers:
+                    price_status.text(f"Fetching {len(missing_tickers)} remaining tickers individually...")
+                    for ticker in missing_tickers:
+                        ticker_prices[ticker] = get_single_price_polygon(ticker)
+                
+                price_status.text(f"✅ Fetched {len(ticker_prices)} prices in {elapsed:.1f}s (Polygon Bulk API)")
+                price_progress.progress(1.0)
+                
+            else:
+                # SLOW PATH: Fallback to yfinance sequential fetching
+                import yfinance as yf
+                for i, ticker in enumerate(unique_tickers):
+                    price_status.text(f"Fetching prices... {i+1}/{len(unique_tickers)} ({ticker})")
+                    try:
+                        stock = yf.Ticker(ticker)
+                        current_price = stock.info.get('currentPrice') or stock.info.get('regularMarketPrice', 0)
+                        ticker_prices[ticker] = current_price if current_price else 0
+                        time.sleep(0.6)  # Rate limit for Yahoo
+                    except Exception as e:
+                        logger.warning(f"Error fetching {ticker}: {e}")
+                        ticker_prices[ticker] = 0
+                    price_progress.progress((i + 1) / len(unique_tickers))
+                
+                price_status.text(f"✅ Fetched prices for {len(unique_tickers)} tickers (Yahoo Finance)")
+            
+            time.sleep(1)
+            price_status.empty()
+            price_progress.empty()
+        
+        # Always include price columns for consistency
+        include_price_columns = True
+        
+        # If we didn't fetch new prices, try to get last documented prices from existing sheet
+        if not ticker_prices:
+            try:
+                # Try to get existing data from Google Sheets to preserve last known prices
+                existing_worksheet = sheets_integration.sheet.worksheet("QA Analyses")
+                existing_data = existing_worksheet.get_all_records()
+                
+                # Build a map of ticker -> last known price
+                last_known_prices = {}
+                for row in existing_data:
+                    ticker_key = row.get('Ticker', '')
+                    current_price_val = row.get('Current Price', 0)
+                    if ticker_key and current_price_val and current_price_val != 0:
+                        # Keep the most recent (last) price for each ticker
+                        last_known_prices[ticker_key] = float(current_price_val)
+                
+                # Use last known prices when available
+                for ticker in unique_tickers:
+                    if ticker in last_known_prices:
+                        ticker_prices[ticker] = last_known_prices[ticker]
+                        
+                if last_known_prices:
+                    st.info(f"📈 Using last documented prices for {len(last_known_prices)} tickers")
+                    logger.info(f"Retrieved last known prices for: {list(last_known_prices.keys())}")
+                else:
+                    st.info("ℹ️ No previous price data found - Current Price column will be empty")
+                        
+            except Exception as e:
+                logger.warning(f"Could not retrieve last known prices from sheet: {e}")
+        
+        for ticker, analyses in analysis_archive.items():
+            # Get current price from cache (use last known price if no new price fetched)
+            current_price = ticker_prices.get(ticker, None)
+            
+            for analysis in analyses:
+                # Extract fundamentals
+                fundamentals = analysis.fundamentals if hasattr(analysis, 'fundamentals') and analysis.fundamentals else {}
+                
+                # Extract agent scores
+                agent_scores = analysis.agent_scores if hasattr(analysis, 'agent_scores') and analysis.agent_scores else {}
+                
+                # Extract agent rationales
+                agent_rationales = analysis.agent_rationales if hasattr(analysis, 'agent_rationales') and analysis.agent_rationales else {}
+                
+                # Calculate price change (use current price if available, otherwise leave blank)
+                price_change_pct = None
+                if current_price is not None and current_price > 0:
+                    price_at_analysis = safe_float(analysis.price_at_analysis, 2) or 0
+                    if price_at_analysis > 0:
+                        price_change = current_price - price_at_analysis
+                        price_change_pct = (price_change / price_at_analysis) * 100
+                
+                # Build row in exact order specified
+                row = {
+                    'Ticker': ticker,
+                    'Recommendation': analysis.recommendation.value.upper(),
+                    'Confidence Score': safe_float(analysis.confidence_score, 1),
+                    'Price at Analysis': safe_float(analysis.price_at_analysis, 2),
+                    'Price': safe_float(fundamentals.get('price', analysis.price_at_analysis), 2),
+                    'Beta': safe_float(fundamentals.get('beta'), 2),
+                    'EPS': safe_float(fundamentals.get('eps'), 2),
+                    'Week 52 Low': safe_float(fundamentals.get('week_52_low'), 2),
+                    'Week 52 High': safe_float(fundamentals.get('week_52_high'), 2),
+                    'Is EFT?': safe_value(fundamentals.get('is_etf', 'No')),
+                    'Market Cap': safe_float(fundamentals.get('market_cap'), 0),
+                    'Summary': (safe_value(fundamentals.get('description', fundamentals.get('name', 'N/A'))) or 'N/A')[:500],
+                    'Value Agent Score': safe_float(agent_scores.get('value_agent'), 1),
+                    'Growth Momentum Agent Score': safe_float(agent_scores.get('growth_momentum_agent'), 1),
+                    'Macro Regime Agent Score': safe_float(agent_scores.get('macro_regime_agent'), 1),
+                    'Risk Agent Score': safe_float(agent_scores.get('risk_agent'), 1),
+                    'Sentiment Agent Score': safe_float(agent_scores.get('sentiment_agent'), 1),
+                    'Client Layer Agent Score': safe_float(agent_scores.get('client_layer_agent'), 1),
+                    'Learning Agent Score': safe_float(agent_scores.get('learning_agent'), 1),
+                    'Sector': safe_value(fundamentals.get('sector', 'N/A')),
+                    'Pe Ratio': safe_float(fundamentals.get('pe_ratio'), 2),
+                    'Dividend Yield': safe_float(fundamentals.get('dividend_yield'), 4),
+                    'Data Sources': safe_value(', '.join(fundamentals.get('data_sources') or []) if fundamentals.get('data_sources') else 'N/A'),
+                    'Key Metrics': safe_value(fundamentals.get('key_metrics', 'N/A')),
+                    'Risk Assessment': safe_value(fundamentals.get('risk_assessment', 'N/A')),
+                    'Perplexity Analysis': (safe_value(fundamentals.get('perplexity_analysis', 'N/A')) or 'N/A')[:500],
+                    'Value Agent Rationale': ' '.join(str(agent_rationales.get('value_agent', 'N/A')).split())[:1000],
+                    'Growth Momentum Agent Rationale': ' '.join(str(agent_rationales.get('growth_momentum_agent', 'N/A')).split())[:1000],
+                    'Macro Regime Agent Rationale': ' '.join(str(agent_rationales.get('macro_regime_agent', 'N/A')).split())[:1000],
+                    'Risk Agent Rationale': ' '.join(str(agent_rationales.get('risk_agent', 'N/A')).split())[:1000],
+                    'Sentiment Agent Rationale': ' '.join(str(agent_rationales.get('sentiment_agent', 'N/A')).split())[:1000],
+                    'Client Layer Agent Rationale': ' '.join(str(agent_rationales.get('client_layer_agent', 'N/A')).split())[:1000],
+                    'Learning Agent Rationale': ' '.join(str(agent_rationales.get('learning_agent', 'N/A')).split())[:1000],
+                    'Analysis Date': analysis.timestamp.strftime('%Y-%m-%d %H:%M:%S'),
+                    'Export Date': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                    'Timestamp': analysis.timestamp.strftime('%Y-%m-%d %H:%M:%S'),
+                    'Source': safe_value(fundamentals.get('source', 'N/A')),
+                    'Polygon Data': safe_value(fundamentals.get('polygon_data', 'N/A'))
+                }
+                
+                # Always add price columns for consistency
+                row['Current Price'] = safe_float(current_price, 2) if current_price is not None else None
+                row['Price Change %'] = safe_float(price_change_pct, 2) if price_change_pct is not None else None
+                
+                qa_data.append(row)
+        
+        # Create DataFrame with exact column order (always include price columns for consistency)
+        column_order = ['Ticker', 'Recommendation', 'Confidence Score', 'Price at Analysis', 'Current Price', 'Price Change %']
+        
+        column_order.extend([
+            'Beta', 'EPS', 'Week 52 Low', 'Week 52 High', 'Is EFT?', 'Market Cap',
+            'Value Agent Score', 'Growth Momentum Agent Score', 'Macro Regime Agent Score',
+            'Risk Agent Score', 'Sentiment Agent Score', 'Client Layer Agent Score',
+            'Summary', 'Learning Agent Score',
+            'Sector', 'Pe Ratio', 'Dividend Yield',
+            'Perplexity Analysis',
+            'Value Agent Rationale', 'Growth Momentum Agent Rationale', 'Macro Regime Agent Rationale',
+            'Risk Agent Rationale', 'Sentiment Agent Rationale', 'Client Layer Agent Rationale',
+            'Learning Agent Rationale',
+            'Analysis Date', 'Export Date', 'Timestamp', 'Source',
+            'Data Sources', 'Key Metrics', 'Risk Assessment', 'Polygon Data'
+        ])
+        
+        # Update QA worksheet with ordered data
+        return sheets_integration.update_qa_analyses(qa_data, column_order=column_order)
         
     except Exception as e:
-        print(f"Error updating Google Sheets QA analyses: {e}")
+        st.error(f"Google Sheets QA update error: {e}")
+        import traceback
+        st.error(f"Details: {traceback.format_exc()}")
         return False
 
 
