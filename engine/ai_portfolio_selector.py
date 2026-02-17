@@ -36,7 +36,7 @@ class AIPortfolioSelector:
         self.model_config = model_config
         
         # Create logs directory
-        self.logs_dir = Path("/Users/arjansingh/Wharton/portfolio_selection_logs")
+        self.logs_dir = Path("portfolio_selection_logs")
         self.logs_dir.mkdir(exist_ok=True)
         
         # Rate limiting configuration - balance speed with API limits
