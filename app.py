@@ -15,6 +15,7 @@ import os
 from pathlib import Path
 import yaml
 import json
+import time
 
 # Setup page config
 st.set_page_config(
@@ -32,6 +33,7 @@ from utils.config_loader import get_config_loader
 from utils.logger import setup_logging, get_disclosure_logger
 from utils.qa_system import QASystem, RecommendationType
 from utils.google_sheets_integration import get_sheets_integration
+from utils.tier_manager import TierManager
 from data.enhanced_data_provider import EnhancedDataProvider
 from engine.portfolio_orchestrator import PortfolioOrchestrator
 from engine.backtest import BacktestEngine
@@ -193,50 +195,58 @@ def initialize_system():
     """Initialize the system components."""
     if st.session_state.initialized:
         return True
-    
-    # Check API keys
-    if not os.getenv('OPENAI_API_KEY'):
-        st.error("⚠️ OPENAI_API_KEY not found. Please set it in .env file.")
+
+    # Initialize tier manager
+    if 'tier_manager' not in st.session_state:
+        st.session_state.tier_manager = TierManager()
+    tier = st.session_state.tier_manager
+
+    # Check API keys via tier manager
+    if not tier.get_api_key('OPENAI_API_KEY'):
+        st.error("OPENAI_API_KEY not found. Please set it in .env file or provide your own key in the sidebar.")
         return False
-    
-    if not os.getenv('ALPHA_VANTAGE_API_KEY'):
-        st.warning("⚠️ ALPHA_VANTAGE_API_KEY not found. Some features may be limited.")
-    
+
+    if not tier.get_api_key('ALPHA_VANTAGE_API_KEY'):
+        st.warning("ALPHA_VANTAGE_API_KEY not found. Some features may be limited.")
+
     try:
         # Initialize components
         st.session_state.config_loader = get_config_loader()
-        
-        # Use Enhanced Data Provider with fallbacks
-        st.session_state.data_provider = EnhancedDataProvider()
-        
+
+        # Use Enhanced Data Provider with tier-resolved keys
+        st.session_state.data_provider = EnhancedDataProvider(
+            alpha_vantage_key=tier.get_api_key('ALPHA_VANTAGE_API_KEY'),
+            news_api_key=tier.get_api_key('NEWS_API_KEY'),
+            polygon_key=tier.get_api_key('POLYGON_API_KEY'),
+        )
+
         # Load configurations
         model_config = st.session_state.config_loader.load_model_config()
         ips_config = st.session_state.config_loader.load_ips()
-        
+
         # Initialize AI clients for advanced features
         openai_client = None
         perplexity_client = None
-        
+
         try:
             if OpenAI is not None:
-                openai_client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+                openai_client = OpenAI(api_key=tier.get_api_key('OPENAI_API_KEY'))
                 st.session_state.openai_client = openai_client
             else:
-                st.warning("⚠️ OpenAI library not available. Please install: pip install openai")
+                st.warning("OpenAI library not available. Please install: pip install openai")
         except Exception as e:
-            st.warning(f"⚠️ OpenAI client initialization failed: {e}")
-        
+            st.warning(f"OpenAI client initialization failed: {e}")
+
         try:
-            if OpenAI is not None:
+            perplexity_key = tier.get_api_key('PERPLEXITY_API_KEY')
+            if OpenAI is not None and perplexity_key:
                 perplexity_client = OpenAI(
-                    api_key=os.getenv('PERPLEXITY_API_KEY'),
+                    api_key=perplexity_key,
                     base_url="https://api.perplexity.ai"
                 )
                 st.session_state.perplexity_client = perplexity_client
-            else:
-                st.warning("⚠️ OpenAI library not available for Perplexity. Please install: pip install openai")
         except Exception as e:
-            st.warning(f"⚠️ Perplexity client initialization failed: {e}")
+            st.warning(f"Perplexity client initialization failed: {e}")
         
         # Initialize orchestrator with enhanced data provider and AI clients
         st.session_state.orchestrator = PortfolioOrchestrator(
@@ -250,23 +260,9 @@ def initialize_system():
         # Initialize QA system
         st.session_state.qa_system = QASystem()
         
-        # Initialize Step Time Manager for persistent step-level timing
-        from utils.step_time_manager import StepTimeManager
-        if 'step_time_manager' not in st.session_state:
-            st.session_state.step_time_manager = StepTimeManager()
-            print(st.session_state.step_time_manager.get_summary())
-        
-        # Initialize analysis time tracking
+        # Initialize analysis time tracking (simple historical average)
         if 'analysis_times' not in st.session_state:
             st.session_state.analysis_times = []  # List of historical analysis times in seconds
-        
-        # Initialize current analysis tracking
-        if 'current_analysis_start' not in st.session_state:
-            st.session_state.current_analysis_start = None
-        if 'current_step_start' not in st.session_state:
-            st.session_state.current_step_start = None
-        if 'last_step' not in st.session_state:
-            st.session_state.last_step = 0
         
         st.session_state.initialized = True
         return True
@@ -278,12 +274,17 @@ def initialize_system():
 
 def main():
     """Main application entry point."""
-    
+
+    # Initialize tier manager early (before system init) so sidebar shows
+    if 'tier_manager' not in st.session_state:
+        st.session_state.tier_manager = TierManager()
+    st.session_state.tier_manager.render_sidebar_ui()
+
     # Header
     st.title("Wharton Investment Analysis System")
     st.markdown("**Multi-Agent Investment Research Platform**")
     st.markdown("---")
-    
+
     # Initialize system
     if not initialize_system():
         st.stop()
@@ -435,6 +436,7 @@ def main():
 
 def stock_analysis_page():
     """Single or multiple stock analysis page."""
+    import time as time_module  # Explicit import to avoid shadowing issues
     st.header("Stock Analysis")
     st.write("Evaluate individual securities or analyze multiple stocks at once using multi-agent investment research methodology.")
     st.markdown("---")
@@ -684,30 +686,26 @@ def stock_analysis_page():
         # Create detailed progress tracking
         progress_bar = st.progress(0)
         status_text = st.empty()
+        status_text.text("🚀 Initializing analysis...")
+        
+        # Track analysis start time for adaptive estimates
+        import time as time_module
+        analysis_start_time = time_module.time()
         
         # Initialize progress tracking in session state
-        if 'analysis_progress' not in st.session_state:
-            st.session_state.analysis_progress = {
-                'step': 0,
-                'total_steps': 10,
-                'current_status': 'Starting analysis...',
-                'progress_bar': None,
-                'status_text': None
-            }
-        
-        # Store progress components in session state for orchestrator access
-        st.session_state.analysis_progress['progress_bar'] = progress_bar
-        st.session_state.analysis_progress['status_text'] = status_text
+        st.session_state.analysis_progress = {
+            'progress_bar': progress_bar,
+            'status_text': status_text,
+            'start_time': analysis_start_time
+        }
         
         # Handle single or multiple stock analysis
         if analysis_mode == "Single Stock":
             # Single stock analysis (existing logic)
             try:
-                import time
-                
                 # Initialize step tracking for this analysis
-                st.session_state.current_analysis_start = time.time()
-                st.session_state.current_step_start = time.time()
+                st.session_state.current_analysis_start = time_module.time()
+                st.session_state.current_step_start = time_module.time()
                 st.session_state.last_step = 0
                 
                 # Calculate estimated time
@@ -722,7 +720,7 @@ def stock_analysis_page():
                 progress_bar.progress(0)
                 
                 # Track start time
-                start_time = time.time()
+                start_time = time_module.time()
                 
                 # Convert analysis_date to string format
                 # Handle both date object and potential tuple from date_input
@@ -741,7 +739,7 @@ def stock_analysis_page():
                 )
                 
                 # Track end time and store
-                end_time = time.time()
+                end_time = time_module.time()
                 analysis_duration = end_time - start_time
                 st.session_state.analysis_times.append(analysis_duration)
                 
@@ -756,7 +754,7 @@ def stock_analysis_page():
                 progress_bar.progress(100)
                 
                 # Clear progress indicators after a brief moment
-                time.sleep(0.5)
+                time_module.sleep(0.5)
                 progress_bar.empty()
                 status_text.empty()
                 
@@ -800,7 +798,7 @@ def stock_analysis_page():
             time_estimate_display.info(f"⏱️ Initial estimate: ~{est_minutes}m {est_seconds}s for {len(tickers)} stocks")
             
             for idx, stock_ticker in enumerate(tickers):
-                stock_start_time = time.time()
+                stock_start_time = time_module.time()
                 
                 # Calculate dynamic time remaining using actual batch performance
                 completed_count = idx  # Number of stocks completed so far
@@ -824,22 +822,24 @@ def stock_analysis_page():
                     est_seconds = est_remaining_seconds % 60
                     overall_status.text(f"📊 Analyzing {stock_ticker} ({idx + 1} of {len(tickers)}) - Est. {est_minutes}m {est_seconds}s remaining")
                 
-                # Create progress tracking for individual stock
-                stock_progress_bar = st.progress(0)
+                # Create progress tracking for individual stock - VISIBLE FROM START
+                stock_progress_bar = st.progress(0.0)  # Start at 0% but visible
                 stock_status_text = st.empty()
+                stock_status_text.text("🚀 Initializing analysis...")  # Show initial status
                 
-                # Initialize step tracking for this stock
-                st.session_state.current_analysis_start = time.time()
-                st.session_state.current_step_start = time.time()
-                st.session_state.last_step = 0
+                # Create progress tracking for individual stock - VISIBLE FROM START
+                stock_progress_bar = st.progress(0.0)  # Start at 0% but visible
+                stock_status_text = st.empty()
+                stock_status_text.text("🚀 Initializing analysis...")  # Show initial status
                 
-                # Re-initialize progress tracking in session state for this stock
+                # Track analysis start time for adaptive estimates
+                analysis_start_time = time_module.time()
+                
+                # Simple progress tracking in session state
                 st.session_state.analysis_progress = {
-                    'step': 0,
-                    'total_steps': 10,
-                    'current_status': 'Starting analysis...',
                     'progress_bar': stock_progress_bar,
-                    'status_text': stock_status_text
+                    'status_text': stock_status_text,
+                    'start_time': analysis_start_time
                 }
                 
                 try:
@@ -860,7 +860,7 @@ def stock_analysis_page():
                     )
                     
                     # Track time for this stock
-                    stock_end_time = time.time()
+                    stock_end_time = time_module.time()
                     stock_duration = stock_end_time - stock_start_time
                     st.session_state.analysis_times.append(stock_duration)
                     
@@ -1276,7 +1276,7 @@ def display_stock_analysis(result: dict):
     st.markdown("---")
     st.markdown("### ⚖️ Score Analysis & Agent Breakdown")
     
-    with st.expander("📊 Detailed Breakdown", expanded=True):
+    with st.expander("📊 Detailed Breakdown", expanded=False):
         # Get agent scores and weights
         agent_scores = result.get('agent_scores', {})
         blended_score = result.get('blended_score', result.get('final_score', 0))
@@ -2122,7 +2122,10 @@ def get_agent_specific_context(agent_key: str, result: dict) -> dict:
         })
     
     elif agent_key == 'sentiment_agent':
-        news_count = len(result.get('news', []))
+        # Get actual scraped article count from sentiment agent details
+        agent_results = result.get('agent_results', {})
+        sentiment_details = agent_results.get('sentiment_agent', {}).get('details', {})
+        news_count = sentiment_details.get('num_articles', 0)
         context.update({
             'News Articles Analyzed': f"{news_count}",
             'Sector': f"{fundamentals.get('sector', 'Unknown')}",
@@ -7369,13 +7372,13 @@ def qa_learning_center_page():
         
         # Initialize Performance Analysis Engine
         try:
-            from utils.performance_analysis_engine import PerformanceAnalysisEngine
+            from utils.performance_analysis_engine_v2 import PerformanceAnalysisEngineV2
             
             if 'performance_engine' not in st.session_state:
                 data_provider = st.session_state.data_provider
                 openai_client = st.session_state.get('openai_client')
                 perplexity_client = st.session_state.get('perplexity_client')
-                st.session_state.performance_engine = PerformanceAnalysisEngine(
+                st.session_state.performance_engine = PerformanceAnalysisEngineV2(
                     data_provider, openai_client, perplexity_client
                 )
             
@@ -7473,77 +7476,141 @@ def qa_learning_center_page():
             
             # Run analysis
             if run_analysis_btn:
-                with st.spinner(f"🔍 Analyzing stock performance from {start_date_str} to {end_date_str}..."):
-                    try:
-                        # Get Google Sheets integration if available
-                        sheets_integration = st.session_state.get('sheets_integration')
-                        
-                        # Check if we can get stocks from sheets
-                        if not sheets_integration or not sheets_integration.sheet:
-                            st.warning("⚠️ Google Sheets not connected. This feature requires Google Sheets to identify stocks with significant movements.")
-                            st.info("💡 Go to System Configuration → Google Sheets Integration to connect your sheet.")
+                # Create prominent progress UI
+                st.markdown("---")
+                st.subheader("🔄 Analysis in Progress")
+                
+                progress_bar = st.progress(0)
+                status_container = st.container()
+                time_container = st.container()
+                details_container = st.container()
+                
+                def update_progress(message: str, progress_pct: int, time_remaining: float):
+                    """Callback to update UI with progress and time estimate."""
+                    # Update progress bar
+                    progress_bar.progress(min(progress_pct, 100) / 100.0)
+                    
+                    # Update status with detailed message
+                    with status_container:
+                        st.markdown(f"**Current Task:** {message}")
+                    
+                    # Update time remaining prominently
+                    with time_container:
+                        if time_remaining > 0:
+                            if time_remaining < 60:
+                                time_str = f"⏱️ **Estimated Time Remaining:** ~{int(time_remaining)} seconds"
+                            else:
+                                mins = int(time_remaining / 60)
+                                secs = int(time_remaining % 60)
+                                time_str = f"⏱️ **Estimated Time Remaining:** ~{mins} min {secs} sec"
+                            st.info(time_str)
                         else:
-                            # Get available worksheets first
-                            try:
-                                worksheets = [ws.title for ws in sheets_integration.sheet.worksheets()]
-                                st.info(f"� Available worksheets: {', '.join(worksheets)}")
-                                
-                                # Check if required worksheet exists
-                                required_names = ['Historical Price Analysis', 'Portfolio Analysis', 'Price Analysis']
-                                has_required = any(name in worksheets for name in required_names)
-                                
-                                if not has_required:
-                                    st.error(f"❌ Missing required worksheet!")
-                                    st.error(f"Please create a worksheet named one of: **{', '.join(required_names)}**")
-                                    st.error(f"Current worksheets: {', '.join(worksheets)}")
-                                    st.info("💡 The worksheet must have columns: **Ticker**, **Percent Change** (or **Price at Analysis** + **Price**)")
-                                else:
-                                    st.info(f"�🔍 Scanning all stocks in Google Sheets for movements ≥{custom_threshold}%...")
-                                    
-                                    # Run comprehensive analysis (will auto-detect stocks with significant movement from sheets)
-                                    report = engine.analyze_performance_period(
-                                        start_date_str,
-                                        end_date_str,
-                                        tickers=None,  # Don't filter by tracked - analyze ALL stocks
-                                        qa_system=qa_system,
-                                        sheets_integration=sheets_integration,
-                                        min_threshold=custom_threshold
-                                    )
-                                    
-                                    # Store in session state
-                                    st.session_state.latest_performance_report = report
-                                    
-                                    st.success("✅ Performance analysis complete!")
-                                    st.rerun()
-                            except Exception as check_error:
-                                st.warning(f"Could not check worksheets: {check_error}")
-                                # Continue anyway - let the engine handle it
-                                st.info(f"🔍 Scanning all stocks in Google Sheets for movements ≥{custom_threshold}%...")
-                                
+                            st.success("✅ Almost done...")
+                    
+                    # Show progress percentage
+                    with details_container:
+                        st.caption(f"Progress: {progress_pct}% complete")
+                
+                try:
+                    # Get Google Sheets integration if available
+                    sheets_integration = st.session_state.get('sheets_integration')
+                    
+                    # Check if we can get stocks from sheets
+                    if not sheets_integration or not sheets_integration.sheet:
+                        progress_bar.empty()
+                        status_container.empty()
+                        time_container.empty()
+                        details_container.empty()
+                        st.warning("⚠️ Google Sheets not connected. This feature requires Google Sheets to identify stocks with significant movements.")
+                        st.info("💡 Go to System Configuration → Google Sheets Integration to connect your sheet.")
+                    else:
+                        # Get available worksheets first
+                        try:
+                            worksheets = [ws.title for ws in sheets_integration.sheet.worksheets()]
+                            st.info(f"� Available worksheets: {', '.join(worksheets)}")
+                            
+                            # Check if required worksheet exists
+                            required_names = ['Historical Price Analysis', 'Portfolio Analysis', 'Price Analysis']
+                            has_required = any(name in worksheets for name in required_names)
+                            
+                            if not has_required:
+                                progress_bar.empty()
+                                status_container.empty()
+                                time_container.empty()
+                                details_container.empty()
+                                st.error(f"❌ Missing required worksheet!")
+                                st.error(f"Please create a worksheet named one of: **{', '.join(required_names)}**")
+                                st.error(f"Current worksheets: {', '.join(worksheets)}")
+                                st.info("💡 The worksheet must have columns: **Ticker**, **Percent Change** (or **Price at Analysis** + **Price**)")
+                            else:
+                                # Run comprehensive analysis with progress callback
                                 report = engine.analyze_performance_period(
                                     start_date_str,
                                     end_date_str,
-                                    tickers=None,
+                                    tickers=None,  # Don't filter by tracked - analyze ALL stocks
                                     qa_system=qa_system,
                                     sheets_integration=sheets_integration,
-                                    min_threshold=custom_threshold
+                                    min_threshold=custom_threshold,
+                                    progress_callback=update_progress
                                 )
                                 
+                                # Store in session state
                                 st.session_state.latest_performance_report = report
+                                
+                                # Clear progress UI and show success
+                                progress_bar.empty()
+                                status_container.empty()
+                                time_container.empty()
+                                details_container.empty()
+                                
                                 st.success("✅ Performance analysis complete!")
                                 st.rerun()
+                        except Exception as check_error:
+                            st.warning(f"Could not check worksheets: {check_error}")
+                            # Continue anyway - let the engine handle it
+                            
+                            report = engine.analyze_performance_period(
+                                start_date_str,
+                                end_date_str,
+                                tickers=None,
+                                qa_system=qa_system,
+                                sheets_integration=sheets_integration,
+                                min_threshold=custom_threshold,
+                                progress_callback=update_progress
+                            )
+                            
+                            st.session_state.latest_performance_report = report
+                            
+                            # Clear progress UI and show success
+                            progress_bar.empty()
+                            status_container.empty()
+                            time_container.empty()
+                            details_container.empty()
+                            
+                            st.success("✅ Performance analysis complete!")
+                            st.rerun()
+                
+                except KeyError as e:
+                    # Clear progress UI on error
+                    progress_bar.empty()
+                    status_container.empty()
+                    time_container.empty()
+                    details_container.empty()
                     
-                    except KeyError as e:
-                        st.error(f"❌ Data error: Missing required field {e}")
-                        st.info("💡 Tip: Ensure your Google Sheets has the required columns (Ticker, Percent Change, or Price at Analysis + Price)")
-                    except Exception as e:
-                        st.error(f"❌ Error during analysis: {e}")
-                        with st.expander("🔍 Debug Information"):
-                            import traceback
-                            st.code(traceback.format_exc())
-                        st.info("💡 Common fixes: Check API keys, verify tracked stocks exist, ensure date range is valid")
-            
-            # Display results if available
+                    st.error(f"❌ Data error: Missing required field {e}")
+                    st.info("💡 Tip: Ensure your Google Sheets has the required columns (Ticker, Percent Change, or Price at Analysis + Price)")
+                except Exception as e:
+                    # Clear progress UI on error
+                    progress_bar.empty()
+                    status_container.empty()
+                    time_container.empty()
+                    details_container.empty()
+                    
+                    st.error(f"❌ Error during analysis: {e}")
+                    with st.expander("🔍 Debug Information"):
+                        import traceback
+                        st.code(traceback.format_exc())
+                    st.info("💡 Common fixes: Check API keys, verify tracked stocks exist, ensure date range is valid")            # Display results if available
             if 'latest_performance_report' in st.session_state and st.session_state.latest_performance_report:
                 report = st.session_state.latest_performance_report
                 
@@ -7791,7 +7858,7 @@ def qa_learning_center_page():
         
         except ImportError as e:
             st.error(f"❌ Performance Analysis Engine not available: {e}")
-            st.info("The performance analysis feature requires the PerformanceAnalysisEngine module.")
+            st.info("The performance analysis feature requires the PerformanceAnalysisEngineV2 module.")
         except Exception as e:
             st.error(f"❌ Error initializing Performance Analysis: {e}")
             import traceback
@@ -8456,7 +8523,7 @@ def update_google_sheets_portfolio(result: dict) -> bool:
         with col1:
             client_name = st.text_input("Client Name", value=ips['client']['name'])
             
-            # Enhanced risk tolerance options to match MTWB Foundation profile
+            # Risk tolerance options
             risk_options = ["low", "moderate", "moderate-aggressive", "high", "very-high"]
             current_risk = ips['client']['risk_tolerance']
             

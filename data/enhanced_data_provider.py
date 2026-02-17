@@ -1955,6 +1955,106 @@ class EnhancedDataProvider:
         
         return metrics
     
+    def _get_growth_rates_from_perplexity(self, ticker: str) -> Dict[str, Any]:
+        """Get earnings and revenue growth rates from Perplexity AI."""
+        logger.info(f"📈 Fetching growth rates for {ticker} from Perplexity")
+        
+        try:
+            perplexity_key = os.getenv('PERPLEXITY_API_KEY')
+            if not perplexity_key:
+                logger.warning("Perplexity API key not found")
+                return {'earnings_growth': None, 'revenue_growth': None}
+            
+            import requests
+            
+            # Query for growth rates
+            query = f"What is {ticker}'s current year-over-year earnings growth rate and revenue growth rate? Provide only the numeric percentage values."
+            
+            headers = {
+                "Authorization": f"Bearer {perplexity_key}",
+                "Content-Type": "application/json"
+            }
+            
+            payload = {
+                "model": "llama-3.1-sonar-large-128k-online",
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": "You are a financial data assistant. Provide only numeric values in decimal format (e.g., 0.15 for 15% growth). Return a JSON object with 'earnings_growth' and 'revenue_growth' keys."
+                    },
+                    {
+                        "role": "user",
+                        "content": query
+                    }
+                ],
+                "max_tokens": 150,
+                "temperature": 0.1
+            }
+            
+            response = requests.post(
+                "https://api.perplexity.ai/chat/completions",
+                json=payload,
+                headers=headers,
+                timeout=10
+            )
+            
+            if response.status_code == 200:
+                result = response.json()
+                content = result['choices'][0]['message']['content']
+                logger.info(f"📈 Perplexity response for {ticker} growth rates: {content}")
+                
+                # Parse the response
+                import re
+                import json
+                
+                # Try to extract JSON first
+                json_match = re.search(r'\{[^\}]+\}', content)
+                if json_match:
+                    try:
+                        data = json.loads(json_match.group(0))
+                        earnings_growth = data.get('earnings_growth')
+                        revenue_growth = data.get('revenue_growth')
+                        
+                        # Convert to float if they're strings
+                        if earnings_growth is not None:
+                            earnings_growth = float(earnings_growth)
+                        if revenue_growth is not None:
+                            revenue_growth = float(revenue_growth)
+                        
+                        logger.info(f"✅ Parsed growth rates for {ticker}: EPS={earnings_growth}, Revenue={revenue_growth}")
+                        return {
+                            'earnings_growth': earnings_growth,
+                            'revenue_growth': revenue_growth
+                        }
+                    except (json.JSONDecodeError, ValueError) as e:
+                        logger.warning(f"Failed to parse JSON growth rates: {e}")
+                
+                # Fallback: Extract percentages from text
+                # Look for patterns like "15%", "15.5%", "-5%"
+                numbers = re.findall(r'[-+]?\d+\.?\d*\s*%', content)
+                if len(numbers) >= 2:
+                    try:
+                        earnings_pct = float(numbers[0].replace('%', '').strip()) / 100.0
+                        revenue_pct = float(numbers[1].replace('%', '').strip()) / 100.0
+                        logger.info(f"✅ Extracted growth rates from percentages for {ticker}: EPS={earnings_pct}, Revenue={revenue_pct}")
+                        return {
+                            'earnings_growth': earnings_pct,
+                            'revenue_growth': revenue_pct
+                        }
+                    except ValueError as e:
+                        logger.warning(f"Failed to parse percentage growth rates: {e}")
+                
+                logger.warning(f"Could not parse growth rates from response: {content}")
+                return {'earnings_growth': None, 'revenue_growth': None}
+            
+            else:
+                logger.error(f"Perplexity API error {response.status_code}: {response.text}")
+                return {'earnings_growth': None, 'revenue_growth': None}
+                
+        except Exception as e:
+            logger.error(f"Error fetching growth rates for {ticker}: {e}")
+            return {'earnings_growth': None, 'revenue_growth': None}
+    
     def get_comprehensive_stock_data(self, ticker: str) -> Dict[str, Any]:
         """
         Get comprehensive stock/ETF data using Polygon, Perplexity, and intelligent analysis.
@@ -2027,6 +2127,13 @@ class EnhancedDataProvider:
             'description': comprehensive_metrics.get('description', f"{ticker} stock"),
             'sector': comprehensive_metrics.get('sector', 'Unknown'),
         }
+        
+        # Get earnings and revenue growth rates from Perplexity
+        if not is_etf:
+            growth_rates = self._get_growth_rates_from_perplexity(ticker)
+            metrics['earnings_growth'] = growth_rates.get('earnings_growth')
+            metrics['revenue_growth'] = growth_rates.get('revenue_growth')
+            logger.info(f"📈 Growth rates for {ticker}: EPS={growth_rates.get('earnings_growth')}, Revenue={growth_rates.get('revenue_growth')}")
         
         logger.info(f"✅ MULTI-SOURCE VALIDATED METRICS FOR {ticker}: Price=${metrics.get('price')}, P/E={metrics.get('pe_ratio')}, Beta={metrics.get('beta')}")
         

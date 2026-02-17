@@ -94,56 +94,83 @@ class PortfolioOrchestrator:
         """
         logger.info(f"Starting comprehensive analysis for {ticker} as of {analysis_date}")
         
-        # Progress tracking function with step-level time tracking
-        def update_progress(step, total_steps, message):
+        # Simple progress tracking function with adaptive time estimates
+        def update_progress(message, progress_pct):
+            import streamlit as st
+            import time
+            
             try:
-                # Try to import streamlit to check if we're in a Streamlit context
-                import streamlit as st
-                import time
+                logger.info(f"🔧 update_progress called: {progress_pct}% - {message}")
                 
-                if hasattr(st, 'session_state') and hasattr(st.session_state, 'analysis_progress'):
-                    progress = st.session_state.analysis_progress
+                if not hasattr(st, 'session_state'):
+                    logger.warning("⚠️ st.session_state not available")
+                    return
                     
-                    # Track step completion time using StepTimeManager
-                    if hasattr(st.session_state, 'last_step') and hasattr(st.session_state, 'current_step_start'):
-                        if step > st.session_state.last_step and st.session_state.current_step_start is not None:
-                            # A step was completed, record its time
-                            step_duration = time.time() - st.session_state.current_step_start
-                            completed_step = st.session_state.last_step
-                            
-                            # Record in StepTimeManager for persistence
-                            if hasattr(st.session_state, 'step_time_manager'):
-                                st.session_state.step_time_manager.record_step_time(completed_step, step_duration)
+                if not hasattr(st.session_state, 'analysis_progress'):
+                    logger.warning("⚠️ analysis_progress not in session_state")
+                    return
+                
+                progress = st.session_state.analysis_progress
+                logger.info(f"🔧 Progress dict keys: {progress.keys()}")
+                
+                # Update progress bar
+                if progress.get('progress_bar'):
+                    progress['progress_bar'].progress(progress_pct / 100.0)
+                    logger.info(f"✅ Updated progress bar to {progress_pct}%")
+                else:
+                    logger.warning("⚠️ progress_bar not found")
+                
+                # Update status text with inline time remaining
+                if progress.get('status_text'):
+                    # Calculate time remaining for inline display
+                    time_display = ""
+                    if progress.get('start_time') and progress_pct >= 5:
+                        elapsed = time.time() - progress['start_time']
+                        logger.info(f"🔧 Elapsed time: {elapsed:.1f}s, Progress: {progress_pct}%")
                         
-                        # Update current step tracking
-                        st.session_state.last_step = step
-                        st.session_state.current_step_start = time.time()
-                    
-                    # Calculate estimated time remaining using StepTimeManager
-                    time_remaining_str = ""
-                    if hasattr(st.session_state, 'step_time_manager'):
-                        remaining_steps = total_steps - step
-                        if remaining_steps > 0:
-                            # Get remaining step numbers
-                            future_steps = list(range(step + 1, total_steps + 1))
-                            
-                            # Use StepTimeManager to calculate estimate
-                            total_est_time = st.session_state.step_time_manager.get_total_estimate(future_steps)
-                            
-                            est_minutes = int(total_est_time // 60)
-                            est_seconds = int(total_est_time % 60)
-                            if est_minutes > 0:
-                                time_remaining_str = f" - ~{est_minutes}m {est_seconds}s left"
+                        # Debug: Check session state
+                        if hasattr(st.session_state, 'analysis_times'):
+                            logger.info(f"🔧 Historical times available: {len(st.session_state.analysis_times)} entries: {st.session_state.analysis_times}")
+                        else:
+                            logger.info(f"🔧 No historical times in session state")
+                        
+                        # Strategy 1: Use historical average if available
+                        if hasattr(st.session_state, 'analysis_times') and len(st.session_state.analysis_times) > 0:
+                            avg_total_time = sum(st.session_state.analysis_times) / len(st.session_state.analysis_times)
+                            estimated_remaining = avg_total_time * (1 - progress_pct / 100.0)
+                            logger.info(f"📊 Using historical average: {avg_total_time:.1f}s total, {estimated_remaining:.1f}s remaining (based on {len(st.session_state.analysis_times)} past runs)")
+                        # Strategy 2: Use current progress rate
+                        elif progress_pct >= 10:
+                            rate = elapsed / progress_pct
+                            estimated_remaining = rate * (100 - progress_pct)
+                            logger.info(f"📊 Using adaptive rate: {rate:.2f}s per %, {estimated_remaining:.1f}s remaining")
+                        else:
+                            estimated_remaining = None
+                            logger.info(f"🔧 Not enough progress to estimate ({progress_pct}%)")
+                        
+                        # Format time display
+                        if estimated_remaining and estimated_remaining > 0:
+                            if estimated_remaining < 60:
+                                time_display = f" ⏱️ ~{int(estimated_remaining)}s"
                             else:
-                                time_remaining_str = f" - ~{est_seconds}s left"
+                                mins = int(estimated_remaining // 60)
+                                secs = int(estimated_remaining % 60)
+                                time_display = f" ⏱️ ~{mins}m {secs}s"
+                            logger.info(f"✅ Time display formatted: {time_display}")
                     
-                    if progress.get('progress_bar') and progress.get('status_text'):
-                        progress_percent = int((step / total_steps) * 100)
-                        progress['progress_bar'].progress(progress_percent)
-                        progress['status_text'].text(f"{message} ({step}/{total_steps}){time_remaining_str}")
+                    # Show message with inline time remaining
+                    full_message = f"{message}{time_display}"
+                    progress['status_text'].text(full_message)
+                    logger.info(f"✅ Updated status text: {full_message}")
+                else:
+                    logger.warning("⚠️ status_text not found")
+                
+                time.sleep(0.1)  # Delay to ensure Streamlit renders
+                
             except Exception as e:
-                # If not in Streamlit context or any error, just continue
-                pass
+                logger.error(f"❌ Progress update failed: {e}")
+                import traceback
+                traceback.print_exc()
         
         # Set agent weights for this analysis if provided
         if agent_weights:
@@ -164,11 +191,32 @@ class PortfolioOrchestrator:
                     self.agent_weights[agent_name] = weight
         
         # 1. Gather all data
-        update_progress(1, 10, f"🔍 Fetching fundamental data from multiple sources for {ticker}")
-        data = self._gather_data(ticker, analysis_date, existing_portfolio)
+        update_progress(f"🔍 Fetching fundamental data from multiple sources for {ticker}", 10)
         
-        if not data['fundamentals']:
+        try:
+            data = self._gather_data(ticker, analysis_date, existing_portfolio)
+        except Exception as e:
+            logger.error(f"Error gathering data for {ticker}: {e}")
+            import traceback
+            traceback.print_exc()
+            return {
+                'ticker': ticker, 
+                'error': f'Data gathering failed: {str(e)}',
+                'fundamentals': {},
+                'price_history': {},
+                'agent_results': {},
+                'agent_scores': {},
+                'agent_rationales': {},
+                'client_result': {'score': 0, 'rationale': f'Data gathering failed: {str(e)}', 'eligible': False},
+                'client_layer': {'score': 0, 'rationale': f'Data gathering failed: {str(e)}', 'eligible': False},
+                'blended_score': 0,
+                'final_score': 0,
+                'eligible': False
+            }
+        
+        if not data or not data.get('fundamentals'):
             logger.warning(f"No fundamental data for {ticker}")
+            update_progress(f"❌ No fundamental data found for {ticker}", 10)
             return {
                 'ticker': ticker, 
                 'error': 'No data available',
@@ -204,34 +252,37 @@ class PortfolioOrchestrator:
         else:
             market_cap_str = "N/A"
         
-        update_progress(2, 10, f"📊 Extracted - Price: ${price}, EPS: ${eps}, P/E: {pe_ratio}, Market Cap: {market_cap_str}")
+        update_progress(f"📊 Extracted - Price: ${price}, EPS: ${eps}, P/E: {pe_ratio}, Market Cap: {market_cap_str}", 20)
         
         # 2. Phase 1: Run all agents independently
-        update_progress(3, 10, f"🤖 Initializing {len(self.agents)} specialized analysis agents")
+        update_progress(f"🤖 Initializing {len(self.agents)} specialized analysis agents", 30)
         agent_results = {}
         agent_count = 0
         total_agents = len(self.agents)
         
         for agent_name, agent in self.agents.items():
             agent_count += 1
-            # Update progress for specific agents - ONE update per agent
+            # Calculate progress through agents (30-70%)
+            agent_progress = 30 + (agent_count / total_agents) * 40
+            
+            # Update progress for specific agents
             if 'value' in agent_name.lower():
                 pe_ratio = data['fundamentals'].get('pe_ratio', 'N/A')
                 dividend_yield = data['fundamentals'].get('dividend_yield', 'N/A')
-                update_progress(3, 10, f"💎 Value Agent: Analyzing P/E {pe_ratio}, dividend yield {dividend_yield}%")
+                update_progress(f"💎 Value Agent: Analyzing P/E {pe_ratio}, dividend yield {dividend_yield}%", int(agent_progress))
             elif 'growth' in agent_name.lower():
                 eps = data['fundamentals'].get('eps', 'N/A')
                 revenue_growth = data['fundamentals'].get('revenue_growth', 'N/A')
-                update_progress(4, 10, f"📈 Growth Agent: Analyzing EPS ${eps}, revenue growth {revenue_growth}%")
+                update_progress(f"📈 Growth Agent: Analyzing EPS ${eps}, revenue growth {revenue_growth}%", int(agent_progress))
             elif 'macro' in agent_name.lower():
                 sector = data['fundamentals'].get('sector', 'Unknown')
-                update_progress(5, 10, f"🌍 Macro Agent: Evaluating {sector} sector in current regime")
+                update_progress(f"🌍 Macro Agent: Evaluating {sector} sector in current regime", int(agent_progress))
             elif 'risk' in agent_name.lower():
                 beta = data['fundamentals'].get('beta', 'N/A')
                 volatility = data.get('details', {}).get('volatility_pct', 'N/A')
-                update_progress(6, 10, f"⚖️ Risk Agent: Computing beta {beta}, volatility {volatility}%")
+                update_progress(f"⚖️ Risk Agent: Computing beta {beta}, volatility {volatility}%", int(agent_progress))
             elif 'sentiment' in agent_name.lower():
-                update_progress(7, 10, f"📰 Sentiment Agent: Analyzing news and analyst sentiment")
+                update_progress(f"📰 Sentiment Agent: Analyzing news and analyst sentiment", int(agent_progress))
             
             try:
                 result = agent.analyze(ticker, data)
@@ -249,11 +300,11 @@ class PortfolioOrchestrator:
                 }
         
         # 3. Blend scores with weighted averaging
-        update_progress(8, 10, f"⚖️ Blending agent scores with weights")
+        update_progress(f"⚖️ Blending agent scores with weights", 80)
         blended_score = self._blend_scores(agent_results)
         
         # 4. Apply client layer validation
-        update_progress(9, 10, f"🔍 Running client suitability validation")
+        update_progress(f"🔍 Running client suitability validation", 90)
         client_result = self.agents['client_layer_agent'].analyze(ticker, {
             'agent_results': agent_results,
             'blended_score': blended_score,
@@ -262,7 +313,7 @@ class PortfolioOrchestrator:
         
         # 5. Final result
         eligibility = "✅ Eligible" if client_result.get('eligible', False) else "❌ Not Eligible"
-        update_progress(10, 10, f"✅ Analysis complete: {client_result['score']:.1f}/100, {eligibility}")
+        update_progress(f"✅ Analysis complete: {client_result['score']:.1f}/100, {eligibility}", 100)
         
         # Restore original weights if they were changed
         if agent_weights:
@@ -719,40 +770,108 @@ class PortfolioOrchestrator:
             'analysis_date': analysis_date,
         }
         
-        # Add sub-progress function for data gathering
-        def update_sub_progress(message):
+        # Simple sub-progress function with adaptive time estimates
+        def update_sub_progress(message, progress_pct):
+            import streamlit as st
+            import time
+            
             try:
-                import streamlit as st
-                if hasattr(st, 'session_state') and hasattr(st.session_state, 'analysis_progress'):
-                    progress = st.session_state.analysis_progress
-                    if progress.get('status_text'):
-                        progress['status_text'].text(f"🔍 {message}")
-            except:
-                pass
+                logger.info(f"🔧 update_sub_progress called: {progress_pct}% - {message}")
+                
+                if not hasattr(st, 'session_state'):
+                    logger.warning("⚠️ st.session_state not available")
+                    return
+                    
+                if not hasattr(st.session_state, 'analysis_progress'):
+                    logger.warning("⚠️ analysis_progress not in session_state")
+                    return
+                
+                progress = st.session_state.analysis_progress
+                
+                # Calculate time remaining for inline display
+                time_display = ""
+                if progress.get('start_time') and progress_pct and progress_pct >= 5:
+                    elapsed = time.time() - progress['start_time']
+                    logger.info(f"🔧 Elapsed time: {elapsed:.1f}s, Progress: {progress_pct}%")
+                    
+                    # Debug: Check session state
+                    if hasattr(st.session_state, 'analysis_times'):
+                        logger.info(f"🔧 Historical times available: {len(st.session_state.analysis_times)} entries")
+                    
+                    # Use historical average if available
+                    if hasattr(st.session_state, 'analysis_times') and len(st.session_state.analysis_times) > 0:
+                        avg_total_time = sum(st.session_state.analysis_times) / len(st.session_state.analysis_times)
+                        estimated_remaining = avg_total_time * (1 - progress_pct / 100.0)
+                        logger.info(f"📊 Using historical average: {avg_total_time:.1f}s total, {estimated_remaining:.1f}s remaining (based on {len(st.session_state.analysis_times)} past runs)")
+                    else:
+                        # Adaptive estimate based on current progress rate
+                        if progress_pct >= 10:
+                            rate = elapsed / progress_pct  # seconds per percent
+                            estimated_remaining = rate * (100 - progress_pct)
+                            logger.info(f"📊 Using adaptive rate: {rate:.2f}s per %, {estimated_remaining:.1f}s remaining")
+                        else:
+                            estimated_remaining = None
+                    
+                    # Format time display
+                    if estimated_remaining and estimated_remaining > 0:
+                        if estimated_remaining < 60:
+                            time_display = f" ⏱️ ~{int(estimated_remaining)}s"
+                        else:
+                            mins = int(estimated_remaining // 60)
+                            secs = int(estimated_remaining % 60)
+                            time_display = f" ⏱️ ~{mins}m {secs}s"
+                        logger.info(f"🔧 Time remaining: {time_display}")
+                
+                # Update status text with inline time
+                if progress.get('status_text'):
+                    full_message = f"{message}{time_display}"
+                    progress['status_text'].text(full_message)
+                    logger.info(f"✅ Updated status text: {full_message}")
+                
+                # Update progress bar
+                if progress_pct is not None and progress.get('progress_bar'):
+                    progress['progress_bar'].progress(progress_pct / 100.0)
+                    logger.info(f"✅ Updated progress bar to {progress_pct}%")
+                
+                time.sleep(0.1)  # Delay to ensure Streamlit renders
+                
+            except Exception as e:
+                logger.error(f"❌ Sub-progress update failed: {e}")
+                import traceback
+                traceback.print_exc()
         
         benchmark = self.ips_config.get('universe', {}).get('benchmark', '^GSPC')
         
-        # PARALLEL DATA GATHERING - Run all 3 API calls simultaneously
-        update_sub_progress(f"Launching parallel data retrieval for {ticker}...")
+        # PARALLEL DATA GATHERING - Run all 3 API calls simultaneously with dynamic progress tracking
+        import time
+        start_time = time.time()
+        tasks_completed = 0
+        total_tasks = 3
+        
+        update_sub_progress(f"Launching parallel data retrieval for {ticker}...", 5)
         
         with ThreadPoolExecutor(max_workers=3) as executor:
             # Submit all 3 tasks in parallel
             futures = {}
+            task_start_times = {}
             
             # Task 1: Get fundamentals (Perplexity API - slowest, ~36s)
             if hasattr(self.data_provider, 'get_fundamentals_enhanced'):
-                update_sub_progress(f"Task 1/3: Starting Perplexity API call for fundamentals...")
+                update_sub_progress(f"Task 1/3: Starting Perplexity API call for fundamentals...", 10)
+                task_start_times['fundamentals'] = time.time()
                 futures['fundamentals'] = executor.submit(
                     self.data_provider.get_fundamentals_enhanced, ticker
                 )
             else:
+                task_start_times['fundamentals'] = time.time()
                 futures['fundamentals'] = executor.submit(
                     self.data_provider.get_fundamentals, ticker
                 )
             
             # Task 2: Get price history (Yahoo/Polygon API - medium, ~3-5s)
             # We'll decide which method after fundamentals, but submit the full fetch now
-            update_sub_progress(f"Task 2/3: Starting price history API call...")
+            update_sub_progress(f"Task 2/3: Starting price history API call...", 15)
+            task_start_times['price_history'] = time.time()
             if hasattr(self.data_provider, 'get_price_history_enhanced'):
                 futures['price_history'] = executor.submit(
                     self.data_provider.get_price_history_enhanced,
@@ -765,18 +884,23 @@ class PortfolioOrchestrator:
                 )
             
             # Task 3: Generate benchmark data (synthetic - fast, <1s)
-            update_sub_progress(f"Task 3/3: Generating benchmark correlation data...")
+            update_sub_progress(f"Task 3/3: Generating benchmark correlation data...", 20)
+            task_start_times['benchmark'] = time.time()
             futures['benchmark'] = executor.submit(
                 self._create_benchmark_data, benchmark, start_date, end_date
             )
             
-            # Collect results as they complete
-            update_sub_progress(f"Waiting for parallel tasks to complete...")
+            # Collect results as they complete - SHOW REAL-TIME UPDATES
+            update_sub_progress(f"⏳ All 3 tasks launched, waiting for completions...", 25)
             
             # Get fundamentals result
             try:
                 data['fundamentals'] = futures['fundamentals'].result()
-                update_sub_progress(f"✅ Fundamentals retrieved")
+                task_duration = time.time() - task_start_times['fundamentals']
+                tasks_completed += 1
+                progress_pct = 25 + (tasks_completed / total_tasks) * 45  # 25-70% range
+                elapsed_total = time.time() - start_time
+                update_sub_progress(f"✅ Task 1/3 complete: Fundamentals retrieved in {task_duration:.1f}s", int(progress_pct))
                 
                 # Show specific extracted values
                 if data['fundamentals']:
@@ -787,7 +911,7 @@ class PortfolioOrchestrator:
                     week_52_high = data['fundamentals'].get('week_52_high', 'N/A')
                     beta = data['fundamentals'].get('beta', 'N/A')
                     
-                    update_sub_progress(f"Extracted: Price ${price}, P/E {pe_ratio}, EPS ${eps}")
+                    update_sub_progress(f"Extracted: Price ${price}, P/E {pe_ratio}, EPS ${eps}", int(progress_pct))
                     
                     # CRITICAL DEBUG: Check what we actually got
                     logger.info(f"🔍 ORCHESTRATOR RECEIVED FUNDAMENTALS FOR {ticker}:")
@@ -804,17 +928,22 @@ class PortfolioOrchestrator:
                 if data.get('fundamentals', {}).get('source') == 'comprehensive_enhanced':
                     # Cancel the price history fetch if not needed
                     futures['price_history'].cancel()
-                    update_sub_progress(f"Using comprehensive data - generating synthetic price history")
+                    tasks_completed += 1
+                    progress_pct = 25 + (tasks_completed / total_tasks) * 45
+                    update_sub_progress(f"✅ Task 2/3 complete: Using comprehensive data (price history included)", int(progress_pct))
                     data['price_history'] = self._extract_price_history_from_fundamentals(data['fundamentals'])
                 else:
                     # Use the fetched price history
                     data['price_history'] = futures['price_history'].result()
-                    update_sub_progress(f"✅ Price history retrieved")
+                    task_duration = time.time() - task_start_times['price_history']
+                    tasks_completed += 1
+                    progress_pct = 25 + (tasks_completed / total_tasks) * 45
+                    update_sub_progress(f"✅ Task 2/3 complete: Price history retrieved in {task_duration:.1f}s", int(progress_pct))
                     
                     if data['price_history'] is not None and not data['price_history'].empty:
                         latest_price = data['price_history']['Close'].iloc[-1] if 'Close' in data['price_history'].columns else 'N/A'
                         days_of_data = len(data['price_history'])
-                        update_sub_progress(f"Downloaded {days_of_data} trading days, latest ${latest_price:.2f}")
+                        update_sub_progress(f"Downloaded {days_of_data} trading days, latest ${latest_price:.2f}", int(progress_pct))
             except Exception as e:
                 logger.error(f"Failed to get price history for {ticker}: {e}")
                 # Fallback to synthetic
@@ -826,12 +955,15 @@ class PortfolioOrchestrator:
             # Get benchmark result
             try:
                 data['benchmark_history'] = futures['benchmark'].result()
-                update_sub_progress(f"✅ Benchmark data generated")
+                task_duration = time.time() - task_start_times['benchmark']
+                tasks_completed += 1
+                progress_pct = 25 + (tasks_completed / total_tasks) * 45  # Should reach 70%
+                update_sub_progress(f"✅ Task 3/3 complete: Benchmark generated in {task_duration:.1f}s", int(progress_pct))
                 
                 if data['benchmark_history'] is not None and not data['benchmark_history'].empty:
                     benchmark_return = ((data['benchmark_history']['Close'].iloc[-1] / data['benchmark_history']['Close'].iloc[0]) - 1) * 100
                     correlation_days = len(data['benchmark_history'])
-                    update_sub_progress(f"{benchmark} {correlation_days} days, {benchmark_return:.1f}% return for beta calc")
+                    update_sub_progress(f"{benchmark} {correlation_days} days, {benchmark_return:.1f}% return for beta calc", int(progress_pct))
             except Exception as e:
                 logger.error(f"Failed to get benchmark data: {e}")
                 data['benchmark_history'] = pd.DataFrame()
@@ -839,7 +971,8 @@ class PortfolioOrchestrator:
         # Add existing portfolio for risk analysis
         data['existing_portfolio'] = existing_portfolio or []
         
-        update_sub_progress(f"All data gathered for {ticker}")
+        total_duration = time.time() - start_time
+        update_sub_progress(f"✅ All data gathered for {ticker} in {total_duration:.1f}s", 10)
         return data
     
     def _extract_price_history_from_fundamentals(self, fundamentals: Dict) -> pd.DataFrame:

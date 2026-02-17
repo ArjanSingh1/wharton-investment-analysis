@@ -1,24 +1,20 @@
 client:
-  name: Connor Barwin
+  name: Default Investor
   risk_tolerance: moderate
   time_horizon_years: 10
   cash_buffer_pct: 10
-  organization: Make the World Better Foundation
-  background: Former NFL linebacker, Philadelphia Eagles front office
+  organization: ''
+  background: ''
   initial_capital: 500000
   target_value: 1500000
   required_growth_rate: 11.61
   drawdown_start_year: 3
   annual_drawdown: 10000
   drawdown_growth_rate: 5
-  foundation_mission: Community-driven capital projects in Philadelphia
-  focus_areas:
-  - Public space improvements
-  - Park and community center revitalization
-  - Safety and inclusivity initiatives
-  - Long-term community stewardship
-  track_record: $30+ million in community improvements since 2013
-  final_project_target: Transformative community space modernization by 2036
+  foundation_mission: ''
+  focus_areas: []
+  track_record: ''
+  final_project_target: ''
 universe:
   geography:
   - US
@@ -29,24 +25,21 @@ universe:
   min_avg_daily_volume: 500000
   min_market_cap: 1000000000
   preferred_sectors:
-  - Technology (infrastructure, community platforms)
-  - Healthcare (community wellness)
-  - Consumer Discretionary (community services)
-  - Industrials (construction, infrastructure)
-  - Real Estate (community development)
-  - Communications (community engagement platforms)
+  - Technology
+  - Healthcare
+  - Consumer Discretionary
+  - Industrials
+  - Real Estate
+  - Communications
   allowed_instruments:
   - Individual Stocks (60-80% allocation)
   - ETFs (20-40% allocation)
-  - REITs (up to 10% for community development exposure)
+  - REITs (up to 10% allocation)
 exclusions:
   sectors: []
   tickers: []
   esg_screens: []
-  local_sensitivities:
-  - Companies with negative Philadelphia community impact
-  - Firms opposing urban development initiatives
-  - Organizations with poor labor relations in Philadelphia region
+  local_sensitivities: []
 position_limits:
   max_position_pct: 10
   max_sector_pct: 30
@@ -119,12 +112,11 @@ monitoring:
   benchmark_primary: S&P 500 (SPY)
   benchmark_secondary: 60/40 Stock/Bond Portfolio
   success_metrics:
-  - Portfolio value progression toward $1.5M target
-  - Ability to fund $10K annual drawdowns starting 2029
+  - Portfolio value progression toward target
   - Risk-adjusted returns vs benchmarks
-  - ESG/mission alignment scores
+  - ESG/mission alignment scores (if enabled)
   - Downside protection during market stress
-  reporting_frequency: Monthly to Connor Barwin/MTWB Board
+  reporting_frequency: Monthly
   annual_review: Comprehensive strategy review and adjustment
 risk_management:
   max_drawdown_tolerance: 25%
@@ -133,9 +125,8 @@ risk_management:
   - 2008 Financial Crisis conditions
   - 2020 COVID market crash and recovery
   - Rising interest rate environment
-  - Philadelphia local economic stress
   liquidity_requirements:
-  - Maintain ability to raise $10K+ quickly for drawdowns
+  - Maintain ability to raise cash quickly for drawdowns
   - Avoid illiquid investments >5% of portfolio
   - Emergency liquidity access within 3 business days
 implementation:
@@ -143,23 +134,21 @@ implementation:
   - 'Month 1-2: Initial portfolio construction'
   - 'Months 3-12: Active monitoring and adjustment'
   - 'Years 1-3: Growth focus with minimal drawdowns'
-  - 'Years 3-7: Growth with annual $10K drawdowns'
-  - 'Years 7-10: Position for final transformative project'
+  - 'Years 3+: Growth with periodic drawdowns as needed'
   decision_making:
-    authority: Connor Barwin with advisory team consultation
+    authority: Portfolio manager
     meeting_frequency: Quarterly strategy reviews
     emergency_protocols: Immediate consultation for >10% portfolio moves
   platform_constraints:
-  - Use Wharton Investment Simulator for execution
   - Focus on long-term holdings vs active trading
-  - Document all investment rationale for final presentation
+  - Document all investment rationale
   - Maintain detailed performance attribution records
 mission_alignment:
   scoring_criteria:
     community_impact: 30%
     esg_factors: 25%
-    philadelphia_relevance: 20%
-    foundation_values: 15%
+    industry_relevance: 20%
+    values_alignment: 15%
     financial_performance: 10%
   minimum_alignment_score: 60
   preferred_alignment_score: 80

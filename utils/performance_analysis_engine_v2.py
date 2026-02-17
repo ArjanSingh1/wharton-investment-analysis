@@ -8,13 +8,15 @@ Key Improvements:
 - Resilient error handling
 - Actionable insights
 - Simple, maintainable code
+- Dynamic time estimation based on actual performance
 """
 
 import json
 import logging
+import time
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Any
+from typing import Dict, List, Optional, Tuple, Any, Callable
 from dataclasses import dataclass, asdict
 import pandas as pd
 
@@ -52,6 +54,189 @@ class MovementInsight:
     actionable: str  # What the model should do differently
 
 
+class DynamicTimeEstimator:
+    """
+    Adaptive time estimation that learns from actual execution times.
+    Provides increasingly accurate estimates as the task progresses.
+    """
+    
+    def __init__(self):
+        self.phase_times = {}  # Store actual times for each phase
+        self.current_phase = None
+        self.phase_start_time = None
+        self.total_start_time = None
+        
+        # Historical averages (initial estimates, will be updated)
+        self.historical_averages = {
+            'identify_movements': 2.0,      # seconds
+            'analyze_per_movement': 0.15,   # seconds per movement
+            'generate_recommendations': 1.0, # seconds
+            'create_report': 0.5            # seconds
+        }
+        
+        # Load historical data if available
+        self._load_history()
+    
+    def _load_history(self):
+        """Load historical timing data to improve initial estimates."""
+        try:
+            history_file = Path("data/performance_analysis_v2/timing_history.json")
+            if history_file.exists():
+                with open(history_file, 'r') as f:
+                    data = json.load(f)
+                    if 'averages' in data:
+                        self.historical_averages.update(data['averages'])
+                        logger.info(f"📊 Loaded timing history: {self.historical_averages}")
+        except Exception as e:
+            logger.debug(f"Could not load timing history: {e}")
+    
+    def _save_history(self):
+        """Save timing data for future runs."""
+        try:
+            history_file = Path("data/performance_analysis_v2/timing_history.json")
+            history_file.parent.mkdir(parents=True, exist_ok=True)
+            
+            # Update averages with exponential moving average (70% old, 30% new)
+            if self.phase_times:
+                for phase, duration in self.phase_times.items():
+                    if phase in self.historical_averages:
+                        old = self.historical_averages[phase]
+                        self.historical_averages[phase] = old * 0.7 + duration * 0.3
+                    else:
+                        self.historical_averages[phase] = duration
+                
+                with open(history_file, 'w') as f:
+                    json.dump({
+                        'averages': self.historical_averages,
+                        'last_updated': datetime.now().isoformat()
+                    }, f, indent=2)
+                
+                logger.info(f"💾 Saved timing history: {self.historical_averages}")
+        except Exception as e:
+            logger.debug(f"Could not save timing history: {e}")
+    
+    def start_total(self):
+        """Mark the start of the entire analysis."""
+        self.total_start_time = time.time()
+        self.phase_times = {}
+    
+    def start_phase(self, phase_name: str):
+        """Mark the start of a phase."""
+        # End previous phase if exists
+        if self.current_phase and self.phase_start_time:
+            duration = time.time() - self.phase_start_time
+            self.phase_times[self.current_phase] = duration
+            logger.debug(f"⏱️ Phase '{self.current_phase}' took {duration:.2f}s")
+        
+        self.current_phase = phase_name
+        self.phase_start_time = time.time()
+    
+    def end_phase(self):
+        """Mark the end of current phase."""
+        if self.current_phase and self.phase_start_time:
+            duration = time.time() - self.phase_start_time
+            self.phase_times[self.current_phase] = duration
+            logger.debug(f"⏱️ Phase '{self.current_phase}' took {duration:.2f}s")
+            self.current_phase = None
+            self.phase_start_time = None
+    
+    def estimate_remaining(self, current_phase: str, progress_pct: float, movement_count: int = 0) -> float:
+        """
+        Estimate remaining time based on:
+        1. Actual time taken so far for completed phases
+        2. Historical averages for remaining phases
+        3. Current phase progress
+        
+        Returns: estimated seconds remaining
+        """
+        elapsed_total = time.time() - self.total_start_time if self.total_start_time else 0
+        
+        # Calculate time for remaining work in current phase
+        if current_phase == 'analyze_movements' and movement_count > 0:
+            # Use actual time per movement if we have data
+            if self.phase_start_time:
+                elapsed_in_phase = time.time() - self.phase_start_time
+                movements_processed = int(movement_count * progress_pct)
+                if movements_processed > 0:
+                    time_per_movement = elapsed_in_phase / movements_processed
+                    remaining_movements = movement_count - movements_processed
+                    phase_remaining = remaining_movements * time_per_movement
+                else:
+                    # Fallback to historical average
+                    phase_remaining = movement_count * self.historical_averages['analyze_per_movement']
+            else:
+                phase_remaining = movement_count * self.historical_averages['analyze_per_movement']
+        else:
+            # For other phases, estimate based on historical data
+            phase_key_map = {
+                'identify_movements': 'identify_movements',
+                'analyze_movements': 'analyze_per_movement',
+                'generate_recommendations': 'generate_recommendations',
+                'create_report': 'create_report'
+            }
+            
+            if current_phase in phase_key_map:
+                phase_key = phase_key_map[current_phase]
+                estimated_phase_time = self.historical_averages.get(phase_key, 1.0)
+                if phase_key == 'analyze_per_movement':
+                    estimated_phase_time *= max(movement_count, 1)
+                phase_remaining = estimated_phase_time * (1.0 - progress_pct)
+            else:
+                phase_remaining = 1.0 * (1.0 - progress_pct)
+        
+        # Add time for remaining phases
+        phase_order = ['identify_movements', 'analyze_movements', 'generate_recommendations', 'create_report']
+        remaining_phases = []
+        
+        try:
+            current_idx = phase_order.index(current_phase)
+            remaining_phases = phase_order[current_idx + 1:]
+        except ValueError:
+            remaining_phases = []
+        
+        remaining_phase_time = 0
+        for phase in remaining_phases:
+            if phase == 'analyze_movements':
+                remaining_phase_time += self.historical_averages['analyze_per_movement'] * max(movement_count, 1)
+            else:
+                phase_key_map_full = {
+                    'identify_movements': 'identify_movements',
+                    'generate_recommendations': 'generate_recommendations',
+                    'create_report': 'create_report'
+                }
+                if phase in phase_key_map_full:
+                    remaining_phase_time += self.historical_averages[phase_key_map_full[phase]]
+        
+        total_remaining = phase_remaining + remaining_phase_time
+        
+        # Apply adjustment factor based on actual vs estimated time so far
+        if elapsed_total > 5:  # Only after we have some data
+            # Compare actual time to what we would have estimated
+            estimated_so_far = 0
+            for completed_phase, duration in self.phase_times.items():
+                if completed_phase == 'identify_movements':
+                    estimated_so_far += self.historical_averages['identify_movements']
+                elif 'analyze' in completed_phase:
+                    estimated_so_far += self.historical_averages['analyze_per_movement'] * max(movement_count, 1)
+            
+            if estimated_so_far > 0:
+                adjustment_factor = elapsed_total / estimated_so_far
+                total_remaining *= adjustment_factor
+        
+        return max(0.5, total_remaining)  # Never show less than 0.5s
+    
+    def finalize(self):
+        """Complete the timing session and save history."""
+        self.end_phase()
+        self._save_history()
+        
+        if self.total_start_time:
+            total_time = time.time() - self.total_start_time
+            logger.info(f"⏱️ Total analysis time: {total_time:.2f}s")
+            return total_time
+        return 0
+
+
 class PerformanceAnalysisEngineV2:
     """
     Rebuilt Performance Analysis Engine focused on:
@@ -71,6 +256,9 @@ class PerformanceAnalysisEngineV2:
         self.storage_dir = Path("data/performance_analysis_v2")
         self.storage_dir.mkdir(parents=True, exist_ok=True)
         
+        # Time estimator
+        self.time_estimator = DynamicTimeEstimator()
+        
         logger.info("✅ Performance Analysis Engine V2 initialized")
     
     def analyze_performance_period(
@@ -81,10 +269,10 @@ class PerformanceAnalysisEngineV2:
         qa_system=None,
         sheets_integration=None,
         min_threshold: float = 15.0,
-        progress_callback=None
+        progress_callback: Optional[Callable[[str, int, float], None]] = None
     ) -> Dict[str, Any]:
         """
-        Main analysis method - FAST and RELIABLE.
+        Main analysis method - FAST and RELIABLE with dynamic time estimates.
         
         Args:
             start_date: Start date (YYYY-MM-DD)
@@ -93,7 +281,7 @@ class PerformanceAnalysisEngineV2:
             qa_system: Optional QA system
             sheets_integration: Google Sheets integration (preferred data source)
             min_threshold: Minimum movement threshold (default 15%)
-            progress_callback: Optional callback for progress updates
+            progress_callback: Optional callback(message, progress_pct, time_remaining_sec)
         
         Returns:
             Complete analysis report with actionable insights
@@ -101,52 +289,79 @@ class PerformanceAnalysisEngineV2:
         logger.info(f"🚀 Starting Performance Analysis V2: {start_date} to {end_date}")
         logger.info(f"   Threshold: {min_threshold}% | Tickers: {'ALL' if tickers is None else len(tickers)}")
         
+        # Start timing
+        self.time_estimator.start_total()
+        
         try:
             # Step 1: Identify significant movements (FAST)
+            self.time_estimator.start_phase('identify_movements')
+            
             if progress_callback:
-                progress_callback("🔍 Identifying significant stock movements...", 10)
+                time_remaining = self.time_estimator.estimate_remaining('identify_movements', 0.0)
+                progress_callback("🔍 Scanning Google Sheets for stocks with significant price movements...", 10, time_remaining)
             
             movements = self._identify_movements_fast(
                 start_date, end_date, tickers, sheets_integration, min_threshold
             )
             
+            self.time_estimator.end_phase()
+            
             if not movements:
                 logger.info("No significant movements found")
+                self.time_estimator.finalize()
                 return self._create_empty_report(start_date, end_date, min_threshold)
             
             logger.info(f"✅ Found {len(movements)} significant movements")
             
             # Step 2: Analyze movements (FAST - no heavy API calls)
-            if progress_callback:
-                progress_callback(f"📊 Analyzing {len(movements)} movements...", 40)
+            self.time_estimator.start_phase('analyze_movements')
             
-            insights = self._analyze_movements_fast(movements, progress_callback)
+            if progress_callback:
+                time_remaining = self.time_estimator.estimate_remaining('analyze_movements', 0.0, len(movements))
+                progress_callback(f"📊 Identified {len(movements)} stocks to analyze - performing pattern-based analysis...", 40, time_remaining)
+            
+            insights = self._analyze_movements_fast(movements, progress_callback, len(movements))
+            
+            self.time_estimator.end_phase()
             
             logger.info(f"✅ Generated {len(insights)} insights")
             
             # Step 3: Generate recommendations (FAST)
+            self.time_estimator.start_phase('generate_recommendations')
+            
             if progress_callback:
-                progress_callback("💡 Generating model recommendations...", 70)
+                time_remaining = self.time_estimator.estimate_remaining('generate_recommendations', 0.0)
+                progress_callback(f"💡 Synthesizing insights and generating {len(insights)} model improvement recommendations...", 70, time_remaining)
             
             recommendations = self._generate_recommendations_fast(movements, insights)
+            
+            self.time_estimator.end_phase()
             
             logger.info(f"✅ Generated {len(recommendations)} recommendations")
             
             # Step 4: Create report
+            self.time_estimator.start_phase('create_report')
+            
             if progress_callback:
-                progress_callback("📝 Creating final report...", 90)
+                time_remaining = self.time_estimator.estimate_remaining('create_report', 0.0)
+                progress_callback("📝 Compiling comprehensive analysis report with patterns and actionable insights...", 90, time_remaining)
             
             report = self._create_report(
                 movements, insights, recommendations, start_date, end_date
             )
             
+            self.time_estimator.end_phase()
+            
             # Step 5: Save results
             self._save_results(report)
             
-            if progress_callback:
-                progress_callback("✅ Analysis complete!", 100)
+            # Finalize timing and save history
+            total_time = self.time_estimator.finalize()
             
-            logger.info("🎉 Performance Analysis V2 COMPLETE")
+            if progress_callback:
+                progress_callback(f"✅ Analysis complete! Processed {len(movements)} stocks in {total_time:.1f}s", 100, 0.0)
+            
+            logger.info(f"🎉 Performance Analysis V2 COMPLETE in {total_time:.2f}s")
             return report
             
         except Exception as e:
@@ -362,20 +577,39 @@ class PerformanceAnalysisEngineV2:
     def _analyze_movements_fast(
         self,
         movements: List[StockMovement],
-        progress_callback=None
+        progress_callback=None,
+        total_movements: int = 0
     ) -> List[MovementInsight]:
         """
         FAST analysis without heavy API calls.
         Focus on pattern recognition and heuristics.
         """
         insights = []
+        total = len(movements)
         
         for i, movement in enumerate(movements):
             try:
-                # Update progress periodically
-                if progress_callback and i % 5 == 0:
-                    progress = 40 + int((i / len(movements)) * 30)
-                    progress_callback(f"Analyzing {movement.ticker}...", progress)
+                # Update progress with dynamic time estimate
+                if progress_callback and i % 3 == 0:  # Update every 3 movements
+                    progress_pct = i / total
+                    progress_display = 40 + int(progress_pct * 30)
+                    time_remaining = self.time_estimator.estimate_remaining(
+                        'analyze_movements', 
+                        progress_pct,
+                        total
+                    )
+                    
+                    # Build detailed status message
+                    analyzed_count = i
+                    remaining_count = total - i
+                    pct_change = movement.price_change_pct
+                    direction = "gained" if pct_change > 0 else "lost"
+                    
+                    status_msg = (f"📈 Analyzing {movement.ticker} ({analyzed_count + 1}/{total}) - "
+                                f"Stock {direction} {abs(pct_change):.1f}% | "
+                                f"{remaining_count} stocks remaining...")
+                    
+                    progress_callback(status_msg, progress_display, time_remaining)
                 
                 # Quick analysis based on patterns
                 insight = self._quick_insight(movement)
@@ -666,3 +900,38 @@ class PerformanceAnalysisEngineV2:
         if report and 'recommendations' in report:
             return report['recommendations'][:limit]
         return []
+    
+    def mark_recommendation_implemented(self, recommendation_id: str, notes: str = ""):
+        """Mark a recommendation as implemented and start tracking its impact."""
+        try:
+            tracking_file = self.storage_dir / "implementation_tracking.json"
+            
+            # Load existing tracking data
+            tracking_data = {'implemented_recommendations': []}
+            if tracking_file.exists():
+                with open(tracking_file, 'r') as f:
+                    tracking_data = json.load(f)
+            
+            # Create implementation record
+            implementation_record = {
+                'recommendation_id': recommendation_id,
+                'implemented_at': datetime.now().isoformat(),
+                'notes': notes,
+                'performance_before': {},  # Will be populated with pre-implementation metrics
+                'performance_after': {}   # Will be tracked post-implementation
+            }
+            
+            # Add to tracking
+            if 'implemented_recommendations' not in tracking_data:
+                tracking_data['implemented_recommendations'] = []
+            
+            tracking_data['implemented_recommendations'].append(implementation_record)
+            
+            # Save tracking data
+            with open(tracking_file, 'w') as f:
+                json.dump(tracking_data, f, indent=2, default=str)
+            
+            logger.info(f"✅ Marked recommendation {recommendation_id} as implemented")
+            
+        except Exception as e:
+            logger.error(f"Failed to mark recommendation as implemented: {e}")

@@ -1,63 +1,100 @@
-# Environment variables
+# =============================================================================
+# Environment & Secrets
+# =============================================================================
 .env
+.env.local
+.env.production
+*.secret
 
 # Google Sheets credentials (NEVER COMMIT!)
 google_credentials.json
 *credentials*.json
-*.json
-!config/*.json
-!package.json
+*service_account*.json
 
+# =============================================================================
 # Python
+# =============================================================================
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
 .Python
 venv/
+.venv/
 env/
+*.egg-info/
+dist/
+build/
 
-# Data cache
+# =============================================================================
+# Data & Cache
+# =============================================================================
 data/cache/
+data/history/
+data/performance_analysis/
+data/performance_analysis_v2/
+data/qa_system/
+data/saved_portfolios.json
+data/step_times.json
 *.pkl
 *.parquet
 
-# Logs
+# =============================================================================
+# Logs & Outputs
+# =============================================================================
 logs/
 *.log
-
-# Archive (old documentation)
-archive/
-
-# Outputs
 outputs/
 results/
 backtests/
+portfolio_selection_logs/
 
-# IDE
+# =============================================================================
+# Client-Specific Data
+# =============================================================================
+profiles/
+
+# =============================================================================
+# IDE & Editor
+# =============================================================================
 .vscode/
 .idea/
 *.swp
 *.swo
+*~
+.VSCodeCounter/
 
+# =============================================================================
 # OS
+# =============================================================================
 .DS_Store
 Thumbs.db
 
-# Backup Files
+# =============================================================================
+# Backup & Temporary Files
+# =============================================================================
 *.backup
 *.bak
 *.bak2
-SYSTEM_FLOW_DIAGRAMS.md.backup
+app.py.bak
 
-# VS Code Counter
-.VSCodeCounter/
+# Temporary documentation
+DYNAMIC_TIME_ESTIMATION.md
+ENHANCED_PROGRESS_UI.md
+LEARNING_AGENT_CLEANUP.md
+test_time_estimation.py
 
-# Test Files
-test_*.py
-*_test.py
-
-# Temporary Documentation (keep only main docs)
+# Pattern-based temp docs
 *_FIX.md
 *_DEBUGGING.md
 *_BUGFIXES.md
+
+# Obsolete config files
+config/*.backup*
+config/premium_apis.env.example
+
+# =============================================================================
+# Streamlit
+# =============================================================================
+# Keep .streamlit/config.toml but ignore secrets
+.streamlit/secrets.toml
