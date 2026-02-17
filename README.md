@@ -38,7 +38,7 @@ Visit the [Streamlit Cloud deployment](https://wharton-investment.streamlit.app)
 
 ```bash
 # Clone the repository
-git clone https://github.com/YOUR_USERNAME/wharton-investment-analysis.git
+git clone https://github.com/ArjanSingh1/wharton-investment-analysis.git
 cd wharton-investment-analysis
 
 # Create virtual environment
