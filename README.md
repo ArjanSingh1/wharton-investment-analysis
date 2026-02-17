@@ -38,8 +38,8 @@ Visit the [Streamlit Cloud deployment](https://wharton-investment.streamlit.app)
 
 ```bash
 # Clone the repository
-git clone https://github.com/ArjanSingh1/wharton-investment-analysis.git
-cd wharton-investment-analysis
+git clone https://github.com/yaboibean2/Wharton.git
+cd Wharton
 
 # Create virtual environment
 python -m venv .venv
