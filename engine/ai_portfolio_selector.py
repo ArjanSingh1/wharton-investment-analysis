@@ -1,6 +1,6 @@
 """
 AI-Powered Portfolio Selector
-Multi-stage AI selection process using OpenAI o3 and Gemini 2.5 Pro for optimal stock selection.
+Multi-stage AI selection process using OpenAI o3 and Gemini 2.5 Flash (thinking) for optimal stock selection.
 """
 
 import logging
@@ -20,7 +20,7 @@ class AIPortfolioSelector:
 
     Process:
     1. OpenAI o3 selects 20 best tickers with context
-    2. Gemini 2.5 Pro selects 20 best tickers with context
+    2. Gemini 2.5 Flash (thinking) selects 20 best tickers with context
     3. Aggregate to 40 unique tickers
     4. Generate 4-sentence rationale for each (why strong/beneficial/relevant)
     5. OpenAI o3 selects top 5 from 40 (run 3 times)
@@ -31,17 +31,17 @@ class AIPortfolioSelector:
     def __init__(self, openai_client, gemini_api_key: str, ips_config: Dict[str, Any], model_config: Dict[str, Any]):
         """Initialize the AI Portfolio Selector."""
         self.openai_client = openai_client
-        self.gemini_model = None
+        self.gemini_client = None
         self.ips_config = ips_config
         self.model_config = model_config
 
-        # Initialize Gemini
+        # Initialize Gemini 2.5 Flash with thinking (new google-genai SDK)
         if gemini_api_key:
             try:
-                import google.generativeai as genai
-                genai.configure(api_key=gemini_api_key)
-                self.gemini_model = genai.GenerativeModel("gemini-2.5-pro")
-                logger.info("Gemini 2.5 Pro initialized successfully")
+                from google import genai as google_genai
+                self.gemini_client = google_genai.Client(api_key=gemini_api_key)
+                self.gemini_api_key = gemini_api_key
+                logger.info("Gemini 2.5 Flash (thinking) initialized successfully")
             except Exception as e:
                 logger.warning(f"Gemini initialization failed: {e}")
 
@@ -328,7 +328,7 @@ Only return the JSON array, nothing else.
         universe_size: int,
         num_tickers: int
     ) -> Tuple[List[str], Dict[str, Any]]:
-        """Use Gemini 2.5 Pro to select initial tickers."""
+        """Use Gemini 2.5 Flash (thinking) to select initial tickers."""
 
         context = self._build_selection_context(challenge_context, client_profile)
 
@@ -374,18 +374,22 @@ Only return the JSON array, nothing else.
 """
 
         try:
-            if not self.gemini_model:
-                raise ValueError("Gemini model not initialized. Check GEMINI_API_KEY.")
+            if not self.gemini_client:
+                raise ValueError("Gemini client not initialized. Check GEMINI_API_KEY.")
 
-            import google.generativeai as genai
+            from google import genai as google_genai
+            from google.genai import types as genai_types
 
-            # Use Gemini with thinking enabled
-            response = self.gemini_model.generate_content(
-                prompt,
-                generation_config=genai.GenerationConfig(
-                    temperature=0.7,
-                    max_output_tokens=500,
-                )
+            response = self.gemini_client.models.generate_content(
+                model='gemini-2.5-flash',
+                contents=prompt,
+                config=genai_types.GenerateContentConfig(
+                    thinking_config=genai_types.ThinkingConfig(
+                        thinking_budget=8000,
+                    ),
+                    temperature=1.0,
+                    max_output_tokens=1000,
+                ),
             )
 
             content = response.text.strip()
@@ -402,10 +406,10 @@ Only return the JSON array, nothing else.
                 'prompt': prompt,
                 'response': content,
                 'tickers': tickers,
-                'model': 'gemini-2.5-pro'
+                'model': 'gemini-2.5-flash-thinking'
             }
 
-            logger.info(f"Gemini 2.5 Pro selected {len(tickers)} tickers")
+            logger.info(f"Gemini 2.5 Flash (thinking) selected {len(tickers)} tickers")
             return tickers, log
 
         except Exception as e:

@@ -38,14 +38,22 @@ class APITestSuite:
         assert response.choices[0].message.content, "Empty response from OpenAI"
 
     def test_gemini(self):
-        """Test Gemini API with 2.5 Pro."""
+        """Test Gemini 2.5 Flash with thinking mode."""
         key = os.getenv('GEMINI_API_KEY')
         if not key:
             raise ValueError("GEMINI_API_KEY not set in .env")
-        import google.generativeai as genai
-        genai.configure(api_key=key)
-        model = genai.GenerativeModel("gemini-2.5-pro")
-        response = model.generate_content("Reply with OK")
+        from google import genai as google_genai
+        from google.genai import types as genai_types
+        client = google_genai.Client(api_key=key)
+        response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents='Reply with OK',
+            config=genai_types.GenerateContentConfig(
+                thinking_config=genai_types.ThinkingConfig(thinking_budget=512),
+                temperature=1.0,
+                max_output_tokens=100,
+            ),
+        )
         assert response.text, "Empty response from Gemini"
 
     def test_polygon(self):
