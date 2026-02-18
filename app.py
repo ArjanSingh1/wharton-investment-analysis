@@ -485,7 +485,7 @@ def main():
         <div style="background:linear-gradient(135deg,#635bff,#7a73ff);color:white;font-weight:700;font-size:1rem;
                     width:38px;height:38px;border-radius:10px;display:flex;
                     align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(99,91,255,0.25);
-                    letter-spacing:-0.02em;">IA</div>
+                    letter-spacing:-0.02em;">Investment </div>
         <div>
             <div style="font-size:1.2rem;font-weight:700;color:#111827;letter-spacing:-0.03em;line-height:1.2;">
                 Investment Analysis</div>
@@ -957,13 +957,14 @@ def display_stock_analysis(result: dict):
             except:
                 st.caption(f"Analysis Date: {result['analysis_date']}")
     with col2:
-        # Eligibility badge
-        if result['eligible']:
-            st.success("ELIGIBLE")
-            st.caption("This stock meets all investment policy criteria")
+        # Score badge
+        final_score = result['final_score']
+        if final_score >= 70:
+            st.success(f"Score: {final_score:.1f}")
+        elif final_score >= 50:
+            st.info(f"Score: {final_score:.1f}")
         else:
-            st.error("NOT ELIGIBLE")
-            st.caption("This stock does not meet IPS criteria")
+            st.warning(f"Score: {final_score:.1f}")
     
     # Show which weights were used for this analysis
     weight_preset = st.session_state.get('weight_preset', 'equal_weights')
@@ -1035,7 +1036,7 @@ def display_stock_analysis(result: dict):
         st.metric("Beta", f"{beta:.2f}" if beta and beta != 0 else "N/A", help="Market volatility coefficient")
     
     # Additional Enhanced Metrics Row
-    col5, col6, col7, col8 = st.columns(4)
+    col5, col6, col7, col8, col9 = st.columns(5)
     with col5:
         div_yield = result['fundamentals'].get('dividend_yield')
         # Dividend yield can be a decimal (0.02 = 2%) or already a percentage (2.0 = 2%)
@@ -1055,10 +1056,17 @@ def display_stock_analysis(result: dict):
         week_52_low = result['fundamentals'].get('week_52_low')
         week_52_high = result['fundamentals'].get('week_52_high')
         if week_52_low and week_52_high:
-            st.metric("52W Range", f"${week_52_low:.2f}-${week_52_high:.2f}", help="52-week price range")
+            st.metric("52W Low", f"${week_52_low:.2f}", help="52-week low price")
         else:
-            st.metric("52W Range", "N/A", help="52-week price range")
+            st.metric("52W Low", "N/A", help="52-week low price")
     with col8:
+        week_52_low = result['fundamentals'].get('week_52_low')
+        week_52_high = result['fundamentals'].get('week_52_high')
+        if week_52_low and week_52_high:
+            st.metric("52W High", f"${week_52_high:.2f}", help="52-week high price")
+        else:
+            st.metric("52W High", "N/A", help="52-week high price")
+    with col9:
         market_cap = result['fundamentals'].get('market_cap')
         if market_cap:
             if market_cap >= 1e12:
@@ -1074,58 +1082,49 @@ def display_stock_analysis(result: dict):
     week_52_low = result['fundamentals'].get('week_52_low')
     week_52_high = result['fundamentals'].get('week_52_high')
     current_price = result['fundamentals'].get('price')
-    
+
     if week_52_low and week_52_high and current_price:
         st.subheader("52-Week Price Range")
-        
-        # Create a simple visualization using Streamlit's native components
-        col1, col2, col3 = st.columns([1, 8, 1])
-        
-        with col1:
-            st.metric("52W Low", f"${week_52_low:.2f}")
-        
-        with col2:
-            # Calculate position of current price within the range
-            price_position = (current_price - week_52_low) / (week_52_high - week_52_low)
-            price_position = max(0, min(1, price_position))  # Clamp between 0 and 1
-            
-            # Create a visual representation with a fully shaded bar
-            st.markdown("**Current Price Position in 52-Week Range:**")
-            
-            # Determine color based on position
-            if price_position >= 0.80:
-                bar_color = "#0ea371"
-                position_text = "Near 52W High"
-            elif price_position >= 0.60:
-                bar_color = "#3b82f6"
-                position_text = "Upper Range"
-            elif price_position >= 0.40:
-                bar_color = "#d97706"
-                position_text = "Mid Range"
-            elif price_position >= 0.20:
-                bar_color = "#ea580c"
-                position_text = "Lower Range"
-            else:
-                bar_color = "#dc2626"
-                position_text = "Near 52W Low"
 
-            # Create a fully shaded horizontal bar using HTML/CSS
-            bar_html = f"""
-            <div style="position: relative; width: 100%; height: 36px; background-color: #f0f0f5; border-radius: 8px; overflow: hidden; margin: 10px 0; border: 1px solid #e5e7eb;">
-                <div style="position: absolute; left: 0; top: 0; width: {price_position*100}%; height: 100%; background: {bar_color}; border-radius: 8px 0 0 8px; opacity: 0.85;"></div>
-                <div style="position: absolute; left: {price_position*100}%; top: 50%; transform: translate(-50%, -50%); width: 2px; height: 40px; background-color: #1a1a2e; z-index: 10;"></div>
-                <div style="position: absolute; left: {price_position*100}%; top: -28px; transform: translateX(-50%); font-weight: 600; font-size: 13px; color: #1a1a2e; white-space: nowrap;">
-                    ${current_price:.2f}
-                </div>
+        # Calculate position of current price within the range
+        price_position = (current_price - week_52_low) / (week_52_high - week_52_low)
+        price_position = max(0, min(1, price_position))  # Clamp between 0 and 1
+
+        # Determine color based on position
+        if price_position >= 0.80:
+            bar_color = "#0ea371"
+            position_text = "Near 52W High"
+        elif price_position >= 0.60:
+            bar_color = "#3b82f6"
+            position_text = "Upper Range"
+        elif price_position >= 0.40:
+            bar_color = "#d97706"
+            position_text = "Mid Range"
+        elif price_position >= 0.20:
+            bar_color = "#ea580c"
+            position_text = "Lower Range"
+        else:
+            bar_color = "#dc2626"
+            position_text = "Near 52W Low"
+
+        # Single HTML bar with prices embedded at each end and current price marker
+        bar_html = f"""
+        <div style="margin: 10px 0;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                <span style="font-weight: 600; font-size: 14px; color: #dc2626;">${week_52_low:.2f}</span>
+                <span style="font-weight: 600; font-size: 13px; color: #1a1a2e;">Current: ${current_price:.2f}</span>
+                <span style="font-weight: 600; font-size: 14px; color: #0ea371;">${week_52_high:.2f}</span>
             </div>
-            """
-            st.markdown(bar_html, unsafe_allow_html=True)
-            
-            # Position info
-            st.markdown(f"**{position_text}** • {price_position*100:.1f}% of 52-week range")
-            
-        with col3:
-            st.metric("52W High", f"${week_52_high:.2f}")
+            <div style="position: relative; width: 100%; height: 36px; background-color: #f0f0f5; border-radius: 8px; overflow: visible; border: 1px solid #e5e7eb;">
+                <div style="position: absolute; left: 0; top: 0; width: {price_position*100}%; height: 100%; background: {bar_color}; border-radius: 8px 0 0 8px; opacity: 0.85;"></div>
+                <div style="position: absolute; left: {price_position*100}%; top: 50%; transform: translate(-50%, -50%); width: 3px; height: 44px; background-color: #1a1a2e; z-index: 10; border-radius: 2px;"></div>
+            </div>
+        </div>
+        """
+        st.markdown(bar_html, unsafe_allow_html=True)
+
+        # Position info
+        st.markdown(f"**{position_text}** - {price_position*100:.1f}% of 52-week range")
     
     # ========== COMPREHENSIVE SCORE ANALYSIS SECTION ==========
     st.markdown("---")
@@ -1154,7 +1153,7 @@ def display_stock_analysis(result: dict):
                     'risk_agent': 0.25,
                     'sentiment_agent': 0.15
                 }
-            weights_source = "Default IPS Weights"
+            weights_source = "Default Weights"
         
         st.write(f"**Weights Source:** {weights_source}")
         st.write("---")
@@ -1313,7 +1312,6 @@ Formula: Blended Score = Weighted Sum / Total Weight
         # Extract some key points
         agent_scores = result.get('agent_scores', {})
         final_score = result.get('final_score', 0)
-        eligible = result.get('eligible', False)
         
         col1, col2 = st.columns(2)
         
@@ -1341,9 +1339,7 @@ Formula: Blended Score = Weighted Sum / Total Weight
         st.write("---")
         st.write("**Overall Assessment:**")
         
-        if not eligible:
-            st.error(f"**NOT RECOMMENDED** - While the analysis score is {final_score:.1f}, this investment does not meet investment policy criteria.")
-        elif final_score >= 80:
+        if final_score >= 80:
             st.success(f"**STRONG BUY** - Excellent score of {final_score:.1f} with compelling fundamentals and strong multi-factor support.")
         elif final_score >= 70:
             st.success(f"**BUY** - Strong score of {final_score:.1f} indicating good investment potential with favorable risk/reward profile.")
@@ -1353,14 +1349,6 @@ Formula: Blended Score = Weighted Sum / Total Weight
             st.warning(f"**WEAK HOLD** - Below-average score of {final_score:.1f}. Consider for portfolio review or reduction.")
         else:
             st.error(f"**SELL** - Low score of {final_score:.1f} with significant concerns. Consider alternatives.")
-    
-    # IPS eligibility summary
-    st.markdown("---")
-    st.markdown("### IPS Eligibility")
-    if result['eligible']:
-        st.success("**Eligible** - Meets investment policy constraints")
-    else:
-        st.warning("**Not Eligible** - Does not meet IPS constraints")
 
     # Export functionality
     with st.expander("Export Analysis", expanded=False):
@@ -1368,7 +1356,6 @@ Formula: Blended Score = Weighted Sum / Total Weight
         export_data = {
             'Ticker': [result['ticker']],
             'Name': [result['fundamentals'].get('name', 'N/A')],
-            'Eligible': [result['eligible']],
             'Final Score': [result['final_score']],
             'Sector': [result['fundamentals'].get('sector', 'N/A')],
             'Price': [result['fundamentals'].get('price', 0)],
@@ -1403,7 +1390,7 @@ Formula: Blended Score = Weighted Sum / Total Weight
 ---
 
 ## Score: {result['final_score']:.1f}/100
-**Status:** {'APPROVED' if result['eligible'] else 'NOT APPROVED'}
+**Recommendation:** {result.get('recommendation', 'N/A')}
 
 ---
 
@@ -1459,7 +1446,7 @@ def display_multiple_stock_analysis(results: list, failed_tickers: list):
         row = {
             'Ticker': result['ticker'],
             'Final Score': result['final_score'],
-            'Eligible': '' if result['eligible'] else '',
+            'Recommendation': result.get('recommendation', 'N/A'),
             'Price': result['fundamentals'].get('price', 0),
             'Market Cap': result['fundamentals'].get('market_cap', 0),
             'Sector': result['fundamentals'].get('sector', 'N/A'),
@@ -1872,7 +1859,6 @@ def display_enhanced_agent_rationales(result: dict):
                     text-align: center;
                     color: white;
                     font-weight: bold;
-                    text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
                 ">
                     <h2 style="margin: 0; color: white;">{score:.1f}</h2>
                     <p style="margin: 0; color: white;">out of 100</p>
@@ -2381,27 +2367,25 @@ Focus on high-quality companies with strong fundamentals and growth potential.""
                 # Progress tracking
                 progress_bar = st.progress(0)
                 status_text = st.empty()
-                
+
                 # Generate recommendations
-                status_text.text("Stage 1/4: AI Ticker Selection (Searching ALL market caps for best opportunities)...")
-                progress_bar.progress(25)
-                
+                status_text.text("AI agents selecting optimal tickers across all market caps...")
+                progress_bar.progress(10)
+
                 result = st.session_state.orchestrator.recommend_portfolio(
                     challenge_context=challenge_context,
                     tickers=tickers,
                     num_positions=num_positions
                 )
-                
-                status_text.text("Stage 2/4: Analyzing Stocks...")
-                progress_bar.progress(50)
-                
-                status_text.text("Stage 3/4: Constructing Portfolio...")
-                progress_bar.progress(75)
-                
-                status_text.text("Stage 4/4: Finalizing Recommendations...")
-                progress_bar.progress(100)
-                
+
+                status_text.text("Running multi-agent analysis on selected stocks...")
+                progress_bar.progress(60)
+
+                status_text.text("Constructing portfolio with position sizing...")
+                progress_bar.progress(85)
+
                 status_text.text("Portfolio generation complete!")
+                progress_bar.progress(100)
                 
                 # Store result in session state
                 st.session_state.portfolio_result = result
@@ -2424,7 +2408,7 @@ def display_portfolio_recommendations(result: dict):
     selection_log = result.get('selection_log', {})
     
     if not portfolio:
-        st.warning("No eligible stocks found in universe")
+        st.warning("No stocks found in universe")
         return
     
     # AI Selection Summary (if available)
@@ -2601,9 +2585,9 @@ def display_portfolio_recommendations(result: dict):
     # Detailed table
     st.subheader("Holdings Table")
     df = pd.DataFrame(portfolio)
-    df = df[['ticker', 'name', 'sector', 'final_score', 'target_weight_pct', 'eligible']]
-    df.columns = ['Ticker', 'Name', 'Sector', 'Score', 'Weight %', 'Eligible']
-    
+    df = df[['ticker', 'name', 'sector', 'final_score', 'target_weight_pct']]
+    df.columns = ['Ticker', 'Name', 'Sector', 'Score', 'Weight %']
+
     st.dataframe(
         df,
         use_container_width=True,
@@ -2614,10 +2598,6 @@ def display_portfolio_recommendations(result: dict):
                 help="Final composite score",
                 min_value=0,
                 max_value=100,
-            ),
-            "Eligible": st.column_config.CheckboxColumn(
-                "Eligible",
-                help="Meets IPS requirements"
             ),
         }
     )
@@ -2919,14 +2899,14 @@ def system_status_and_ai_disclosure_page():
 def configuration_page():
     """Configuration management page."""
     st.header("System Configuration")
-    st.write("Manage Investment Policy Statement constraints and model parameters.")
+    st.write("Manage analysis constraints and model parameters.")
     st.markdown("---")
-    
-    tab1, tab2, tab3 = st.tabs(["IPS Configuration", "Agent Weights", "Timing Analytics"])
+
+    tab1, tab2, tab3 = st.tabs(["Analysis Configuration", "Agent Weights", "Timing Analytics"])
 
     with tab1:
-        st.subheader("IPS Configuration")
-        st.write("Configure Investment Policy Statement constraints.")
+        st.subheader("Analysis Configuration")
+        st.write("Configure analysis constraints and parameters.")
         
         # Load current IPS
         ips = st.session_state.config_loader.load_ips()
@@ -2990,7 +2970,7 @@ def configuration_page():
             default=current_exclusions
         )
         
-        if st.button("Save IPS Configuration"):
+        if st.button("Save Configuration"):
             # Update IPS with proper structure
             if 'position_limits' not in ips:
                 ips['position_limits'] = {}
@@ -3013,7 +2993,7 @@ def configuration_page():
             ips['exclusions']['sectors'] = excluded_sectors
 
             st.session_state.config_loader.save_ips(ips)
-            st.success("IPS configuration saved!")
+            st.success("Configuration saved!")
 
     with tab2:
         st.subheader("Agent Weights")
@@ -3081,7 +3061,7 @@ def configuration_page():
                 6: "Risk Agent Analysis",
                 7: "Sentiment Agent Analysis",
                 8: "Score Blending",
-                9: "IPS Eligibility Check",
+                9: "Finalizing",
                 10: "Final Analysis"
             }
             

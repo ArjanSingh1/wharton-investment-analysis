@@ -244,10 +244,10 @@ class PortfolioOrchestrator:
         else:
             market_cap_str = "N/A"
         
-        update_progress(f"📊 Extracted - Price: ${price}, EPS: ${eps}, P/E: {pe_ratio}, Market Cap: {market_cap_str}", 20)
-        
+        update_progress(f"Fetching fundamentals, price data, and market metrics for {ticker}...", 20)
+
         # 2. Phase 1: Run all agents independently
-        update_progress(f"🤖 Initializing {len(self.agents)} specialized analysis agents", 30)
+        update_progress(f"Launching {len(self.agents)} AI analysis agents for {ticker}...", 30)
         agent_results = {}
         agent_count = 0
         total_agents = len(self.agents)
@@ -257,32 +257,44 @@ class PortfolioOrchestrator:
             # Calculate progress through agents (30-70%)
             agent_progress = 30 + (agent_count / total_agents) * 40
             
-            # Update progress for specific agents
+            # Update progress for specific agents with descriptive messages
             if 'value' in agent_name.lower():
                 pe_ratio = data['fundamentals'].get('pe_ratio', 'N/A')
                 dividend_yield = data['fundamentals'].get('dividend_yield', 'N/A')
-                update_progress(f"💎 Value Agent: Analyzing P/E {pe_ratio}, dividend yield {dividend_yield}%", int(agent_progress))
+                update_progress(f"Value Agent: Evaluating P/E ratio ({pe_ratio}), dividend yield, and intrinsic value...", int(agent_progress))
             elif 'growth' in agent_name.lower():
                 eps = data['fundamentals'].get('eps', 'N/A')
-                revenue_growth = data['fundamentals'].get('revenue_growth', 'N/A')
-                update_progress(f"📈 Growth Agent: Analyzing EPS ${eps}, revenue growth {revenue_growth}%", int(agent_progress))
+                update_progress(f"Growth Agent: Analyzing earnings growth, revenue momentum, and price trends...", int(agent_progress))
             elif 'macro' in agent_name.lower():
                 sector = data['fundamentals'].get('sector', 'Unknown')
-                update_progress(f"🌍 Macro Agent: Evaluating {sector} sector in current regime", int(agent_progress))
+                update_progress(f"Macro Agent: Assessing {sector} sector positioning in current economic regime...", int(agent_progress))
             elif 'risk' in agent_name.lower():
                 beta = data['fundamentals'].get('beta', 'N/A')
-                volatility = data.get('details', {}).get('volatility_pct', 'N/A')
-                update_progress(f"⚖️ Risk Agent: Computing beta {beta}, volatility {volatility}%", int(agent_progress))
+                update_progress(f"Risk Agent: Computing volatility, beta ({beta}), and downside risk metrics...", int(agent_progress))
             elif 'sentiment' in agent_name.lower():
-                update_progress(f"📰 Sentiment Agent: Analyzing news and analyst sentiment", int(agent_progress))
+                update_progress(f"Sentiment Agent: Fetching news articles and analyzing market sentiment...", int(agent_progress))
             
             try:
                 result = agent.analyze(ticker, data)
                 agent_results[agent_name] = result
-                
-                # Log results but don't update progress to avoid duplicate step timing
-                score = result.get('score', 0)
-                logger.info(f"{agent_name}: {result['score']:.1f} - {result['rationale']}")
+
+                # Log results and show completion with score
+                score = result.get('score')
+                if score is None:
+                    score = 50
+                    result['score'] = 50
+                logger.info(f"{agent_name}: {score:.1f} - {result['rationale']}")
+
+                # Show agent completion with result summary
+                agent_label = agent_name.replace('_agent', '').replace('_', '/').title()
+                if 'sentiment' in agent_name.lower():
+                    num_articles = result.get('details', {}).get('num_articles', 0)
+                    if num_articles > 0:
+                        update_progress(f"Sentiment Agent complete: Analyzed {num_articles} news articles, score {score:.0f}/100", int(agent_progress))
+                    else:
+                        update_progress(f"Sentiment Agent complete: Limited news coverage, score {score:.0f}/100", int(agent_progress))
+                else:
+                    update_progress(f"{agent_label} Agent complete: scored {score:.0f}/100", int(agent_progress))
             except Exception as e:
                 logger.error(f"Error in {agent_name} for {ticker}: {e}")
                 agent_results[agent_name] = {
@@ -292,12 +304,12 @@ class PortfolioOrchestrator:
                 }
         
         # 3. Blend scores with weighted averaging
-        update_progress(f"Blending agent scores with weights", 80)
+        update_progress(f"Blending all agent scores with configured weights...", 80)
         blended_score = self._blend_scores(agent_results)
 
-        # 4. Determine eligibility based on IPS constraints
-        update_progress(f"Checking IPS constraints", 90)
-        eligible = self._check_ips_eligibility(ticker, data.get('fundamentals', {}), blended_score)
+        # 4. Finalize
+        recommendation = self._generate_recommendation(blended_score)
+        update_progress(f"Analysis complete: {blended_score:.1f}/100 - {recommendation}", 90)
         final_score = blended_score
 
         update_progress(f"Analysis complete: {final_score:.1f}/100", 100)
@@ -307,7 +319,7 @@ class PortfolioOrchestrator:
             self.agent_weights = original_weights
 
         # Extract agent scores and rationales for backward compatibility
-        agent_scores = {agent_name: result.get('score', 50) for agent_name, result in agent_results.items()}
+        agent_scores = {agent_name: (result.get('score') or 50) for agent_name, result in agent_results.items()}
         agent_rationales = {agent_name: result.get('rationale', 'Analysis not available') for agent_name, result in agent_results.items()}
 
         return {
@@ -318,8 +330,8 @@ class PortfolioOrchestrator:
             'agent_rationales': agent_rationales,
             'blended_score': blended_score,
             'final_score': final_score,
-            'eligible': eligible,
-            'recommendation': self._generate_recommendation(final_score, eligible),
+            'eligible': True,
+            'recommendation': self._generate_recommendation(final_score),
             'rationale': self._generate_comprehensive_rationale_simple(ticker, agent_results, final_score, data),
             'fundamentals': data.get('fundamentals', {}),
             'price_history': data.get('price_history', {})
@@ -369,7 +381,7 @@ class PortfolioOrchestrator:
         
         for agent_name, weight in self.agent_weights.items():
             if agent_name in agent_results:
-                score = agent_results[agent_name].get('score', 50)
+                score = agent_results[agent_name].get('score') or 50
                 total_score += score * weight
                 total_weight += weight
         
@@ -399,7 +411,7 @@ class PortfolioOrchestrator:
         
         # Factor 2: Sentiment (market recognizing upside)
         if 'sentiment_agent' in agent_results:
-            sentiment_score = agent_results['sentiment_agent'].get('score', 50)
+            sentiment_score = agent_results['sentiment_agent'].get('score') or 50
             if sentiment_score >= 75:
                 upside_multiplier += 0.08  # +8% boost for very positive sentiment
                 upside_factors.append(f"Very positive sentiment ({sentiment_score:.0f}/100) → +8% boost")
@@ -438,11 +450,9 @@ class PortfolioOrchestrator:
         
         return final_score
     
-    def _generate_recommendation(self, score: float, eligible: bool) -> str:
-        """Generate investment recommendation based on score and eligibility."""
-        if not eligible:
-            return "AVOID - Does not meet investment criteria"
-        elif score >= 80:
+    def _generate_recommendation(self, score: float) -> str:
+        """Generate investment recommendation based on score."""
+        if score >= 80:
             return "STRONG BUY"
         elif score >= 70:
             return "BUY"
@@ -503,7 +513,7 @@ class PortfolioOrchestrator:
         for agent_name in agent_order:
             if agent_name in agent_results:
                 result = agent_results[agent_name]
-                score = result.get('score', 50)
+                score = result.get('score') or 50
                 rationale = result.get('rationale', 'Analysis not available')
                 rationale_parts.append(f"\n{agent_labels.get(agent_name, agent_name.upper())}:")
                 rationale_parts.append(f"Score: {score:.2f}/100")
@@ -650,7 +660,7 @@ class PortfolioOrchestrator:
         tasks_completed = 0
         total_tasks = 3
         
-        update_sub_progress(f"Launching parallel data retrieval for {ticker}...", 5)
+        update_sub_progress(f"Starting parallel data retrieval for {ticker}...", 5)
         
         with ThreadPoolExecutor(max_workers=3) as executor:
             # Submit all 3 tasks in parallel
@@ -659,7 +669,7 @@ class PortfolioOrchestrator:
             
             # Task 1: Get fundamentals (API calls - slowest, ~36s)
             if hasattr(self.data_provider, 'get_fundamentals_enhanced'):
-                update_sub_progress(f"Task 1/3: Starting API call for fundamentals...", 10)
+                update_sub_progress(f"Fetching company fundamentals from financial APIs...", 10)
                 task_start_times['fundamentals'] = time.time()
                 futures['fundamentals'] = executor.submit(
                     self.data_provider.get_fundamentals_enhanced, ticker
@@ -672,7 +682,7 @@ class PortfolioOrchestrator:
             
             # Task 2: Get price history (Yahoo/Polygon API - medium, ~3-5s)
             # We'll decide which method after fundamentals, but submit the full fetch now
-            update_sub_progress(f"Task 2/3: Starting price history API call...", 15)
+            update_sub_progress(f"Downloading historical price data...", 15)
             task_start_times['price_history'] = time.time()
             if hasattr(self.data_provider, 'get_price_history_enhanced'):
                 futures['price_history'] = executor.submit(
@@ -686,14 +696,14 @@ class PortfolioOrchestrator:
                 )
             
             # Task 3: Generate benchmark data (synthetic - fast, <1s)
-            update_sub_progress(f"Task 3/3: Generating benchmark correlation data...", 20)
+            update_sub_progress(f"Generating benchmark correlation data...", 20)
             task_start_times['benchmark'] = time.time()
             futures['benchmark'] = executor.submit(
                 self._create_benchmark_data, benchmark, start_date, end_date
             )
             
             # Collect results as they complete - SHOW REAL-TIME UPDATES
-            update_sub_progress(f"⏳ All 3 tasks launched, waiting for completions...", 25)
+            update_sub_progress(f"Waiting for all data sources to respond...", 25)
             
             # Get fundamentals result
             try:
@@ -702,7 +712,7 @@ class PortfolioOrchestrator:
                 tasks_completed += 1
                 progress_pct = 25 + (tasks_completed / total_tasks) * 45  # 25-70% range
                 elapsed_total = time.time() - start_time
-                update_sub_progress(f"✅ Task 1/3 complete: Fundamentals retrieved in {task_duration:.1f}s", int(progress_pct))
+                update_sub_progress(f"Fundamentals retrieved in {task_duration:.1f}s", int(progress_pct))
                 
                 # Show specific extracted values
                 if data['fundamentals']:
@@ -713,7 +723,7 @@ class PortfolioOrchestrator:
                     week_52_high = data['fundamentals'].get('week_52_high', 'N/A')
                     beta = data['fundamentals'].get('beta', 'N/A')
                     
-                    update_sub_progress(f"Extracted: Price ${price}, P/E {pe_ratio}, EPS ${eps}", int(progress_pct))
+                    update_sub_progress(f"Found: Price ${price}, P/E {pe_ratio}, EPS ${eps}", int(progress_pct))
                     
                     # CRITICAL DEBUG: Check what we actually got
                     logger.info(f"🔍 ORCHESTRATOR RECEIVED FUNDAMENTALS FOR {ticker}:")
@@ -732,7 +742,7 @@ class PortfolioOrchestrator:
                     futures['price_history'].cancel()
                     tasks_completed += 1
                     progress_pct = 25 + (tasks_completed / total_tasks) * 45
-                    update_sub_progress(f"✅ Task 2/3 complete: Using comprehensive data (price history included)", int(progress_pct))
+                    update_sub_progress(f"Price history included in comprehensive data", int(progress_pct))
                     data['price_history'] = self._extract_price_history_from_fundamentals(data['fundamentals'])
                 else:
                     # Use the fetched price history
@@ -740,12 +750,12 @@ class PortfolioOrchestrator:
                     task_duration = time.time() - task_start_times['price_history']
                     tasks_completed += 1
                     progress_pct = 25 + (tasks_completed / total_tasks) * 45
-                    update_sub_progress(f"✅ Task 2/3 complete: Price history retrieved in {task_duration:.1f}s", int(progress_pct))
+                    update_sub_progress(f"Price history retrieved: {task_duration:.1f}s", int(progress_pct))
                     
                     if data['price_history'] is not None and not data['price_history'].empty:
                         latest_price = data['price_history']['Close'].iloc[-1] if 'Close' in data['price_history'].columns else 'N/A'
                         days_of_data = len(data['price_history'])
-                        update_sub_progress(f"Downloaded {days_of_data} trading days, latest ${latest_price:.2f}", int(progress_pct))
+                update_sub_progress(f"Downloaded {days_of_data} trading days of price data", int(progress_pct))
             except Exception as e:
                 logger.error(f"Failed to get price history for {ticker}: {e}")
                 # Fallback to synthetic
@@ -760,7 +770,7 @@ class PortfolioOrchestrator:
                 task_duration = time.time() - task_start_times['benchmark']
                 tasks_completed += 1
                 progress_pct = 25 + (tasks_completed / total_tasks) * 45  # Should reach 70%
-                update_sub_progress(f"✅ Task 3/3 complete: Benchmark generated in {task_duration:.1f}s", int(progress_pct))
+                update_sub_progress(f"Benchmark data generated in {task_duration:.1f}s", int(progress_pct))
                 
                 if data['benchmark_history'] is not None and not data['benchmark_history'].empty:
                     benchmark_return = ((data['benchmark_history']['Close'].iloc[-1] / data['benchmark_history']['Close'].iloc[0]) - 1) * 100
@@ -774,7 +784,7 @@ class PortfolioOrchestrator:
         data['existing_portfolio'] = existing_portfolio or []
         
         total_duration = time.time() - start_time
-        update_sub_progress(f"✅ All data gathered for {ticker} in {total_duration:.1f}s", 10)
+        update_sub_progress(f"All data gathered for {ticker} in {total_duration:.1f}s", 10)
         return data
     
     def _extract_price_history_from_fundamentals(self, fundamentals: Dict) -> pd.DataFrame:
@@ -928,7 +938,7 @@ class PortfolioOrchestrator:
                     analysis['ai_rationale'] = ticker_rationales[ticker]
                 
                 portfolio_analyses.append(analysis)
-                logger.info(f"   ✅ {ticker}: Score {analysis['final_score']:.1f}, Eligible: {analysis['eligible']}")
+                logger.info(f"   {ticker}: Score {analysis['final_score']:.1f}")
                 
             except Exception as e:
                 logger.error(f"   ❌ Analysis failed for {ticker}: {e}")
@@ -937,19 +947,11 @@ class PortfolioOrchestrator:
         # Stage 3: Filter and construct portfolio
         logger.info("📋 Constructing portfolio from analyzed stocks...")
         
-        # Filter eligible stocks
-        eligible_stocks = [a for a in portfolio_analyses if a.get('eligible', False)]
-        
-        if not eligible_stocks:
-            logger.warning("⚠️ No eligible stocks found!")
-            # Include all analyzed stocks anyway
-            eligible_stocks = portfolio_analyses
-        
         # Sort by final score
-        eligible_stocks.sort(key=lambda x: x.get('final_score', 0), reverse=True)
-        
+        portfolio_analyses.sort(key=lambda x: x.get('final_score', 0), reverse=True)
+
         # Take top N positions
-        portfolio_stocks = eligible_stocks[:num_positions]
+        portfolio_stocks = portfolio_analyses[:num_positions]
         
         # Stage 4: Calculate position sizes (equal weight for now)
         equal_weight = 100.0 / len(portfolio_stocks) if portfolio_stocks else 0
@@ -962,7 +964,7 @@ class PortfolioOrchestrator:
                 'sector': stock['fundamentals'].get('sector', 'Unknown'),
                 'final_score': stock['final_score'],
                 'blended_score': stock['blended_score'],
-                'eligible': stock['eligible'],
+                'eligible': True,
                 'target_weight_pct': equal_weight,
                 'rationale': stock.get('ai_rationale', 'See comprehensive analysis'),
                 'recommendation': stock['recommendation'],
@@ -997,7 +999,7 @@ class PortfolioOrchestrator:
             'analysis_date': analysis_date,
             'all_candidates': all_candidates if tickers is None else selected_tickers,
             'selection_log': selection_log,
-            'eligible_count': len(eligible_stocks),
+            'eligible_count': len(portfolio_analyses),
             'total_analyzed': len(portfolio_analyses),
             'all_analyses': portfolio_analyses  # Include ALL analyzed stocks for QA archive
         }

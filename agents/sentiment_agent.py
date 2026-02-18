@@ -714,51 +714,56 @@ Focus on actionable insights about market sentiment momentum and investor behavi
     
     def _fetch_enhanced_news(self, ticker: str, original_news: List[Dict], fundamentals: Dict, analysis_context: str = "") -> List[Dict]:
         """
-        Fetch enhanced news articles using a two-step process:
-        1. Ask Perplexity for 3 specific article URLs
+        Fetch enhanced news articles using a multi-source approach:
+        1. Ask Perplexity for 5 specific article URLs from credible sources
         2. Scrape those URLs to get actual content
-        
+        3. Fall back to NewsAPI + original news if Perplexity fails
+
         Args:
             ticker: Stock ticker
             original_news: Original news from data provider
             fundamentals: Company fundamentals for context
             analysis_context: Context from other agent rationales
-            
+
         Returns:
             Enhanced news articles with scraped content
         """
         import os
         import requests
         from datetime import datetime
-        
+
         perplexity_key = os.getenv('PERPLEXITY_API_KEY')
         if not perplexity_key:
             logger.warning("Perplexity API key not available - using original news only")
             return original_news
 
-        # Step 1: Get 3 specific article URLs from Perplexity
-        logger.info(f"📰 Calling PerplexityAI, PolygonIO, and AlphaVantage APIs  for {ticker} analyst sentiment articles...")
+        # Step 1: Get article URLs from Perplexity
+        logger.info(f"Searching for recent {ticker} articles from credible financial sources...")
         article_urls = self._get_article_urls_from_perplexity(ticker, fundamentals, analysis_context)
-        
+
         if not article_urls:
-            logger.warning(f"❌ No article URLs found for {ticker} from Perplexity - cannot perform sentiment analysis")
-            return []  # Return empty list instead of fallback
-        else:
-            logger.info(f"✅ Found {len(article_urls)} article URLs from Perplexity for {ticker}")
-        
+            logger.warning(f"No article URLs found for {ticker} from Perplexity")
+            # Fall back to original news if available
+            if original_news:
+                logger.info(f"Using {len(original_news)} articles from data provider for {ticker}")
+                return original_news
+            return []
+
+        logger.info(f"Found {len(article_urls)} article URLs for {ticker}")
+
         # Step 2: Scrape the article URLs to get content
-        logger.info(f"🕷️ Scraping {len(article_urls)} article URLs with BeautifulSoup for {ticker}...")
+        logger.info(f"Scraping {len(article_urls)} articles for {ticker}...")
         scraped_articles = self._scrape_article_urls(article_urls, ticker)
-        
+
         if scraped_articles:
             total_content_length = sum(len(article.get('scraped_content', '')) for article in scraped_articles)
-            logger.info(f"✅ Successfully scraped {len(scraped_articles)} articles for {ticker} ({total_content_length:,} characters total)")
+            logger.info(f"Successfully scraped {len(scraped_articles)} articles for {ticker} ({total_content_length:,} chars)")
             # Sort articles by recency (newest first)
             sorted_articles = self._sort_articles_by_recency(scraped_articles, ticker)
             return sorted_articles
         else:
-            logger.warning(f"❌ Failed to scrape articles for {ticker} - using original news")
-            # Also sort original news by recency if available
+            logger.warning(f"Failed to scrape articles for {ticker} - using original news")
+            # Fall back to original news
             if original_news:
                 sorted_original = self._sort_articles_by_recency(original_news, ticker)
                 return sorted_original
@@ -809,54 +814,44 @@ Focus on actionable insights about market sentiment momentum and investor behavi
 
     def _get_article_urls_from_perplexity(self, ticker: str, fundamentals: Dict, analysis_context: str) -> List[str]:
         """
-        Ask Perplexity for exactly 3 news article URLs related to the stock.
-        
+        Ask Perplexity for recent, high-quality news article URLs from credible financial sources.
+
         Args:
             ticker: Stock ticker
             fundamentals: Company fundamentals for context
             analysis_context: Context from other agent analyses
-            
+
         Returns:
             List of article URLs
         """
         perplexity_key = os.getenv('PERPLEXITY_API_KEY')
         company_name = fundamentals.get('name', ticker)
         sector = fundamentals.get('sector', 'Unknown')
-        
-        # Build comprehensive context
-        context_parts = [
-            f"Company: {company_name} ({ticker})",
-            f"Sector: {sector}",
-        ]
-        
-        if analysis_context:
-            context_parts.append(f"Analysis Context: {analysis_context[:500]}")  # Limit context length
-        
-        context = ". ".join(context_parts)
-        
-        # Use your exact prompt format with better context to avoid confusion
-        company_name = fundamentals.get('name', ticker)
-        if len(company_name) > 50:  # If description is too long, use ticker
-            company_context = ticker
-        else:
-            company_context = f"{company_name} ({ticker})"
-        
-        prompt = f"give me 3 robust recent articles about the stock {ticker} that clearly display analyist sentiment, but only give me the links, and no other formatting/text."
-        
+
+        prompt = f"""Find 5 recent and credible news articles about {company_name} ({ticker}) stock published within the last 14 days.
+
+Requirements:
+- Articles must be from reputable financial sources such as Reuters, Bloomberg, CNBC, Wall Street Journal, Financial Times, Barron's, MarketWatch, SeekingAlpha, Yahoo Finance, Investor's Business Daily, or Motley Fool
+- Prioritize articles covering: earnings results, analyst ratings/upgrades/downgrades, revenue guidance, major business developments, partnerships, product launches, or sector trends affecting {ticker}
+- Each article must be a direct URL to the full article (not a search results page)
+- Prefer the most recent articles available
+
+Return ONLY the 5 URLs, one per line, with no other text or formatting."""
+
         headers = {
             "Authorization": f"Bearer {perplexity_key}",
             "Content-Type": "application/json"
         }
-        
+
         payload = {
             "model": "sonar-pro",
             "messages": [
                 {"role": "user", "content": prompt}
             ],
             "temperature": 0.2,
-            "max_tokens": 800
+            "max_tokens": 1000
         }
-        
+
         try:
             response = requests.post(
                 "https://api.perplexity.ai/chat/completions",
@@ -864,17 +859,17 @@ Focus on actionable insights about market sentiment momentum and investor behavi
                 json=payload,
                 timeout=60
             )
-            
+
             if response.status_code == 200:
                 result = response.json()
                 url_content = result['choices'][0]['message']['content']
-                
+
                 # Extract URLs from the response
-                logger.info(f"📡 Perplexity response for {ticker}: {url_content[:300]}...")
+                logger.info(f"Perplexity response for {ticker}: {url_content[:300]}...")
                 urls = self._extract_urls_from_response(url_content)
-                logger.info(f"🔗 Extracted {len(urls)} URLs for {ticker}: {[url[:50] + '...' for url in urls]}")
+                logger.info(f"Extracted {len(urls)} URLs for {ticker}")
                 return urls
-                    
+
             else:
                 logger.error(f"Perplexity URL fetch failed for {ticker}: {response.status_code}")
                 try:
@@ -883,7 +878,7 @@ Focus on actionable insights about market sentiment momentum and investor behavi
                 except:
                     logger.error(f"Perplexity response text: {response.text}")
                 return []
-                
+
         except Exception as e:
             logger.error(f"Error fetching article URLs for {ticker}: {e}")
             return []
