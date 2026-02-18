@@ -34,13 +34,13 @@ class PortfolioOrchestrator:
         ips_config: Dict[str, Any],
         enhanced_data_provider: EnhancedDataProvider,
         openai_client=None,
-        perplexity_client=None
+        gemini_api_key=None
     ):
         self.model_config = model_config
         self.ips_config = ips_config
         self.data_provider = enhanced_data_provider
         self.openai_client = openai_client
-        self.perplexity_client = perplexity_client
+        self.gemini_api_key = gemini_api_key
         logger.info("Using Enhanced Data Provider with premium fallbacks")
         
         # Initialize agents with their dependencies
@@ -54,9 +54,9 @@ class PortfolioOrchestrator:
         self.agents['sentiment_agent'] = SentimentAgent(model_config, openai_client)
 
         # Initialize AI Portfolio Selector
-        if openai_client and perplexity_client:
+        if openai_client and gemini_api_key:
             self.ai_selector = AIPortfolioSelector(
-                openai_client, perplexity_client, ips_config, model_config
+                openai_client, gemini_api_key, ips_config, model_config
             )
             logger.info("AI Portfolio Selector initialized")
         else:
@@ -657,9 +657,9 @@ class PortfolioOrchestrator:
             futures = {}
             task_start_times = {}
             
-            # Task 1: Get fundamentals (Perplexity API - slowest, ~36s)
+            # Task 1: Get fundamentals (API calls - slowest, ~36s)
             if hasattr(self.data_provider, 'get_fundamentals_enhanced'):
-                update_sub_progress(f"Task 1/3: Starting Perplexity API call for fundamentals...", 10)
+                update_sub_progress(f"Task 1/3: Starting API call for fundamentals...", 10)
                 task_start_times['fundamentals'] = time.time()
                 futures['fundamentals'] = executor.submit(
                     self.data_provider.get_fundamentals_enhanced, ticker
@@ -886,7 +886,7 @@ class PortfolioOrchestrator:
         if tickers is None:
             if self.ai_selector is None:
                 logger.error("❌ AI Portfolio Selector not available")
-                raise ValueError("AI Portfolio Selector not initialized. Check OpenAI and Perplexity API keys.")
+                raise ValueError("AI Portfolio Selector not initialized. Check OpenAI and Gemini API keys.")
             
             logger.info(f"🤖 Running AI-powered ticker selection (universe: {universe_size})...")
             selection_result = self.ai_selector.select_portfolio_tickers(
