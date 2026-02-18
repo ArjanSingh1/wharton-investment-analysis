@@ -9,7 +9,6 @@ import pandas as pd
 import numpy as np
 import logging
 import time
-import threading
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -117,12 +116,12 @@ class PortfolioOrchestrator:
         except Exception:
             pass
 
-        # Smooth progress tracking with background interpolation
-        _progress_lock = threading.Lock()
-        _current_progress = {'pct': 0, 'message': f'Starting analysis for {ticker}...', 'stop': False}
-
         def update_progress(message, progress_pct):
-            """Update progress bar and status text."""
+            """Update progress bar and status text from the main Streamlit thread.
+
+            Background threads cannot reliably update Streamlit widgets,
+            so all progress updates must happen in the main execution thread.
+            """
             import streamlit as st
 
             try:
@@ -130,10 +129,6 @@ class PortfolioOrchestrator:
                     return
 
                 progress = st.session_state.analysis_progress
-
-                with _progress_lock:
-                    _current_progress['pct'] = progress_pct
-                    _current_progress['message'] = message
 
                 # Update progress bar
                 if progress.get('progress_bar'):
@@ -150,49 +145,8 @@ class PortfolioOrchestrator:
 
                     progress['status_text'].text(f"{message}{time_display}")
 
-                time.sleep(0.03)
-
             except Exception as e:
                 logger.error(f"Progress update failed: {e}")
-
-        def _smooth_progress_interpolator(start_pct, end_pct, duration_estimate, message_prefix):
-            """
-            Background thread that smoothly advances progress bar from start_pct to end_pct
-            over duration_estimate seconds. Stops when _current_progress['stop'] is True
-            or when actual progress exceeds the interpolated value.
-            """
-            import streamlit as st
-
-            step_interval = 0.5  # Update every 500ms
-            steps = max(1, int(duration_estimate / step_interval))
-            pct_per_step = (end_pct - start_pct) / steps
-
-            current_pct = start_pct
-            for i in range(steps):
-                with _progress_lock:
-                    if _current_progress['stop'] or _current_progress['pct'] >= end_pct:
-                        return
-                    # Only advance if actual progress hasn't jumped ahead
-                    if _current_progress['pct'] < current_pct:
-                        _current_progress['pct'] = current_pct
-
-                try:
-                    if not hasattr(st, 'session_state') or not hasattr(st.session_state, 'analysis_progress'):
-                        return
-                    progress = st.session_state.analysis_progress
-                    if progress.get('progress_bar'):
-                        progress['progress_bar'].progress(current_pct / 100.0)
-                    if progress.get('status_text'):
-                        elapsed = time.time() - analysis_start_time
-                        time_display = PortfolioOrchestrator._estimate_time_remaining(
-                            elapsed, current_pct, getattr(st, 'session_state', None)
-                        )
-                        progress['status_text'].text(f"{message_prefix}{time_display}")
-                except Exception:
-                    pass
-
-                current_pct += pct_per_step
-                time.sleep(step_interval)
         
         # Set agent weights for this analysis if provided
         if agent_weights:
@@ -212,48 +166,29 @@ class PortfolioOrchestrator:
                 if agent_name in self.agent_weights:
                     self.agent_weights[agent_name] = weight
         
-        # 1. Gather all data (Phase 1: 0-30%)
+        # 1. Gather all data (Phase 1: 0-42%)
         update_progress(f"Fetching data for {ticker} from multiple sources...", 3)
-
-        # Start smooth interpolator for data gathering phase
-        data_gather_duration = DEFAULT_DATA_GATHER_DURATION
-        if hasattr(st, 'session_state'):
-            hist = getattr(st.session_state, 'analysis_phase_times', {})
-            if 'data_gather' in hist and len(hist['data_gather']) > 0:
-                data_gather_duration = sum(hist['data_gather']) / len(hist['data_gather'])
-
-        interpolator_thread = threading.Thread(
-            target=_smooth_progress_interpolator,
-            args=(3, 40, data_gather_duration, f"Gathering data for {ticker}..."),
-            daemon=True
-        )
-        interpolator_thread.start()
 
         data_gather_start = time.time()
         try:
+            _data_cb_count = [0]
+
             def data_progress_cb(msg):
-                """Callback for granular data gathering updates."""
-                with _progress_lock:
-                    _current_progress['message'] = msg
-                try:
-                    progress = st.session_state.analysis_progress
-                    if progress.get('status_text'):
-                        elapsed = time.time() - progress.get('start_time', analysis_start_time)
-                        pct = _current_progress.get('pct', 5)
-                        time_display = PortfolioOrchestrator._estimate_time_remaining(
-                            elapsed, pct, st.session_state
-                        )
-                        progress['status_text'].text(f"{msg}{time_display}")
-                except Exception:
-                    pass
+                """Callback for granular data gathering updates.
+                Also advances the progress bar from 3% to 40%.
+                """
+                _data_cb_count[0] += 1
+                # 4 callbacks expected: 1 initial + 3 task completions
+                # Map to 3% -> 40% range
+                pct = int(3 + (_data_cb_count[0] / 4) * 37)
+                pct = min(pct, 40)
+                update_progress(msg, pct)
 
             data = self._gather_data(ticker, analysis_date, existing_portfolio, progress_callback=data_progress_cb)
         except Exception as e:
             logger.error(f"Error gathering data for {ticker}: {e}")
             import traceback
             traceback.print_exc()
-            with _progress_lock:
-                _current_progress['stop'] = True
             return {
                 'ticker': ticker,
                 'error': f'Data gathering failed: {str(e)}',
@@ -267,9 +202,6 @@ class PortfolioOrchestrator:
                 'eligible': False
             }
 
-        # Stop interpolator and snap to 30%
-        with _progress_lock:
-            _current_progress['stop'] = True
         data_gather_elapsed = time.time() - data_gather_start
 
         # Record phase timing for future estimates
@@ -331,16 +263,6 @@ class PortfolioOrchestrator:
         total_agents = len(self.agents)
         agent_phase_start = time.time()
 
-        # Estimate per-agent duration for smooth interpolation
-        avg_agent_duration = DEFAULT_AGENTS_DURATION / total_agents  # ~9.6s per agent
-        try:
-            if hasattr(st, 'session_state'):
-                hist = getattr(st.session_state, 'analysis_phase_times', {})
-                if 'agents' in hist and len(hist['agents']) > 0:
-                    avg_agent_duration = (sum(hist['agents']) / len(hist['agents'])) / total_agents
-        except Exception:
-            pass
-
         agent_labels_map = {
             'value_agent': 'Value',
             'growth_momentum_agent': 'Growth/Momentum',
@@ -377,23 +299,9 @@ class PortfolioOrchestrator:
 
             update_progress(agent_msg, int(agent_start_pct))
 
-            # Start smooth interpolator for this agent
-            with _progress_lock:
-                _current_progress['stop'] = False
-            agent_interpolator = threading.Thread(
-                target=_smooth_progress_interpolator,
-                args=(agent_start_pct + 1, agent_end_pct - 1, avg_agent_duration, agent_msg),
-                daemon=True
-            )
-            agent_interpolator.start()
-
             try:
                 result = agent.analyze(ticker, data)
                 agent_results[agent_name] = result
-
-                # Stop interpolator
-                with _progress_lock:
-                    _current_progress['stop'] = True
 
                 # Log results and show completion with score
                 score = result.get('score')

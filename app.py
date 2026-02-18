@@ -842,16 +842,11 @@ def stock_analysis_page():
                     est_seconds = est_remaining_seconds % 60
                     overall_status.text(f"Analyzing {stock_ticker} ({idx + 1} of {len(tickers)}) - Est. {est_minutes}m {est_seconds}s remaining")
                 
-                # Create progress tracking for individual stock - VISIBLE FROM START
-                stock_progress_bar = st.progress(0.0)  # Start at 0% but visible
+                # Create progress tracking for individual stock
+                stock_progress_bar = st.progress(0.0)
                 stock_status_text = st.empty()
-                stock_status_text.text("Initializing analysis...")  # Show initial status
-                
-                # Create progress tracking for individual stock - VISIBLE FROM START
-                stock_progress_bar = st.progress(0.0)  # Start at 0% but visible
-                stock_status_text = st.empty()
-                stock_status_text.text("Initializing analysis...")  # Show initial status
-                
+                stock_status_text.text("Initializing analysis...")
+
                 # Track analysis start time for adaptive estimates
                 analysis_start_time = time_module.time()
                 
