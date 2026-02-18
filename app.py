@@ -703,18 +703,32 @@ def stock_analysis_page():
                 st.error("Please enter at least one ticker symbol")
                 return
         
-        # Create a single empty slot - writing into it forces an immediate Streamlit delta
+        # Create empty slots for progress display
         progress_slot = st.empty()
-        progress_slot.progress(0, text="Initializing analysis...")
 
         # Track analysis start time for adaptive estimates
         import time as time_module
         analysis_start_time = time_module.time()
 
-        # Direct progress callback - each call writes a fresh progress element into the slot,
-        # which forces an immediate WebSocket delta flush to the browser.
+        def _render_progress(slot, pct, message):
+            """Render a custom HTML progress bar into a Streamlit empty slot.
+            Uses raw HTML/CSS via st.markdown to bypass st.progress widget issues.
+            """
+            pct = max(0, min(100, int(pct)))
+            slot.markdown(
+                f'<div style="width:100%;background:#e0e0e0;border-radius:4px;overflow:hidden;'
+                f'height:8px;margin:8px 0 4px 0">'
+                f'<div style="width:{pct}%;background:#ff4b4b;height:100%;border-radius:4px;'
+                f'transition:width 0.3s ease"></div></div>'
+                f'<div style="color:#888;font-size:13px">{message}</div>',
+                unsafe_allow_html=True
+            )
+
+        _render_progress(progress_slot, 0, "Initializing analysis...")
+
+        # Direct progress callback
         def on_progress(pct, message):
-            progress_slot.progress(pct / 100.0, text=message)
+            _render_progress(progress_slot, pct, message)
 
         # Handle single or multiple stock analysis
         if analysis_mode == "Single Stock":
@@ -725,9 +739,9 @@ def stock_analysis_page():
                     avg_time = sum(st.session_state.analysis_times) / len(st.session_state.analysis_times)
                     est_minutes = int(avg_time // 60)
                     est_seconds = int(avg_time % 60)
-                    progress_slot.progress(0, text=f"Starting analysis... (Est. {est_minutes}m {est_seconds}s)")
+                    _render_progress(progress_slot, 0, f"Starting analysis... (Est. {est_minutes}m {est_seconds}s)")
                 else:
-                    progress_slot.progress(0, text="Starting analysis... (Est. ~80s)")
+                    _render_progress(progress_slot, 0, "Starting analysis... (Est. ~80s)")
 
                 # Track start time
                 start_time = time_module.time()
@@ -761,7 +775,7 @@ def stock_analysis_page():
                 # Final completion
                 actual_minutes = int(analysis_duration // 60)
                 actual_seconds = int(analysis_duration % 60)
-                progress_slot.progress(1.0, text=f"Analysis complete! (Took {actual_minutes}m {actual_seconds}s)")
+                _render_progress(progress_slot, 100, f"Analysis complete! (Took {actual_minutes}m {actual_seconds}s)")
 
                 # Clear progress indicator after a brief moment
                 time_module.sleep(0.5)
@@ -832,11 +846,11 @@ def stock_analysis_page():
                 
                 # Create a single empty slot for this stock's progress
                 stock_progress_slot = st.empty()
-                stock_progress_slot.progress(0, text="Initializing analysis...")
+                _render_progress(stock_progress_slot, 0, "Initializing analysis...")
 
-                # Direct progress callback for this stock - writes fresh element each call
+                # Direct progress callback for this stock
                 def stock_on_progress(pct, message, _slot=stock_progress_slot):
-                    _slot.progress(pct / 100.0, text=message)
+                    _render_progress(_slot, pct, message)
 
                 try:
                     # Convert analysis_date to string format
@@ -2341,19 +2355,11 @@ Focus on high-quality companies with strong fundamentals and growth potential.""
     if st.button("Generate Portfolio", type="primary", use_container_width=True):
         with st.spinner("Running AI-powered portfolio generation..."):
             try:
-                # Progress tracking using empty slot for immediate delta flushes
-                progress_slot = st.empty()
-                progress_slot.progress(0.10, text="AI agents selecting optimal tickers across all market caps...")
-
                 result = st.session_state.orchestrator.recommend_portfolio(
                     challenge_context=challenge_context,
                     tickers=tickers,
                     num_positions=num_positions
                 )
-
-                progress_slot.progress(0.85, text="Constructing portfolio with position sizing...")
-                progress_slot.progress(1.0, text="Portfolio generation complete!")
-                progress_slot.empty()
 
                 # Store result in session state
                 st.session_state.portfolio_result = result
