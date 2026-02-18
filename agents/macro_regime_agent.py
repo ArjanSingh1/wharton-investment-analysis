@@ -367,7 +367,11 @@ Your analysis should be:
 2. Policy-conscious, considering Fed policy, yield curves, and inflation impacts
 3. Forward-looking, discussing implications for sector performance in current macro environment
 4. Specific about the transmission mechanisms between macro conditions and sector fundamentals
-5. Around 100-150 words with clear, actionable macro-investment insights"""
+5. Around 100-150 words with clear, actionable macro-investment insights
+
+CRITICAL: You MUST cite specific numerical values from the data provided (e.g., "With yield curve slope at 0.50 and inflation at 3.2%..." or "The sector adjustment of +15 points reflects...").
+Reference the exact metrics and scores given to you. Explain HOW each metric contributed to the final score.
+State which data sources informed your analysis (e.g., yield curve, inflation rate, unemployment, regime classification)."""
         
         base_score = 50  # Neutral baseline
         final_score = actual_score if actual_score is not None else (base_score + sector_adjustment)

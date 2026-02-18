@@ -333,7 +333,11 @@ Your analysis should be:
 2. Forward-looking, discussing implications for continued growth and momentum
 3. Market-context aware, considering how growth rates compare to sector peers and market conditions
 4. Specific about what drives sustainable growth momentum vs temporary price movements
-5. Around 120-180 words with clear, actionable insights about growth sustainability"""
+5. Around 120-180 words with clear, actionable insights about growth sustainability
+
+CRITICAL: You MUST cite specific numerical values from the data provided (e.g., "Earnings growth of +18.5% combined with 3-month momentum of +12.3%..." or "Revenue growth of 22% validates...").
+Reference the exact metrics and scores given to you. Explain HOW each metric contributed to the final score.
+State which data sources informed your analysis (e.g., earnings growth rate, revenue growth, price momentum, 52-week proximity)."""
         
         earnings_growth = details.get('earnings_growth_pct', 0) or 0
         revenue_growth = details.get('revenue_growth_pct', 0) or 0

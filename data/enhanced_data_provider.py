@@ -2523,52 +2523,52 @@ Example: {{"price": 150.25, "pe_ratio": 28.5, "beta": 1.2}}"""
             return pd.DataFrame()
     
     def _get_yfinance_prices_enhanced(self, ticker: str, start_date: str, end_date: str) -> pd.DataFrame:
-        """Enhanced yfinance with better error handling and proper date validation."""
+        """Enhanced yfinance with retry logic and exponential backoff."""
         # Validate dates - don't use future dates
         start_dt = pd.to_datetime(start_date)
         end_dt = pd.to_datetime(end_date)
         today = pd.Timestamp.now()
-        
+
         # Adjust dates if they're in the future
         if end_dt > today:
             end_dt = today
             logger.info(f"Adjusted end_date from {end_date} to {end_dt.strftime('%Y-%m-%d')} (today)")
-        
+
         if start_dt > today:
             start_dt = today - timedelta(days=30)
             logger.info(f"Adjusted start_date from {start_date} to {start_dt.strftime('%Y-%m-%d')}")
-        
-        # Multiple user agents to avoid blocking
-        user_agents = [
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
-            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"
-        ]
-        
-        # Try different sessions
-        for i, ua in enumerate(user_agents):
+
+        # Retry with exponential backoff
+        max_retries = 4
+        for attempt in range(max_retries):
             try:
                 session = requests.Session()
-                session.headers.update({'User-Agent': ua})
-                
+                session.headers.update({
+                    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
+                })
+
                 stock = yf.Ticker(ticker, session=session)
                 df = stock.history(
-                    start=start_dt.strftime('%Y-%m-%d'), 
+                    start=start_dt.strftime('%Y-%m-%d'),
                     end=end_dt.strftime('%Y-%m-%d')
                 )
-                
+
                 if not df.empty:
                     df['Returns'] = df['Close'].pct_change()
-                    logger.info(f"Yahoo Finance success for {ticker}: {len(df)} days of data")
+                    logger.info(f"Yahoo Finance success for {ticker}: {len(df)} days of data (attempt {attempt + 1})")
                     return df
-                
-                # Minimal delay between attempts
-                time.sleep(random.uniform(0.1, 0.3))
-                
+
+                # Empty response - retry with backoff
+                delay = (2 ** attempt) * 0.5 + random.uniform(0, 0.5)
+                logger.warning(f"yfinance returned empty for {ticker}, retrying in {delay:.1f}s (attempt {attempt + 1}/{max_retries})")
+                time.sleep(delay)
+
             except Exception as e:
-                logger.warning(f"yfinance attempt {i+1} failed: {e}")
-                continue
-        
+                delay = (2 ** attempt) * 0.5 + random.uniform(0, 0.5)
+                logger.warning(f"yfinance attempt {attempt + 1}/{max_retries} failed for {ticker}: {e}, retrying in {delay:.1f}s")
+                time.sleep(delay)
+
+        logger.error(f"yfinance failed for {ticker} after {max_retries} attempts")
         return pd.DataFrame()
     
     def _generate_synthetic_prices(self, ticker: str, start_date: str, end_date: str) -> pd.DataFrame:

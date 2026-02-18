@@ -485,7 +485,7 @@ def main():
         <div style="background:linear-gradient(135deg,#635bff,#7a73ff);color:white;font-weight:700;font-size:1rem;
                     width:38px;height:38px;border-radius:10px;display:flex;
                     align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(99,91,255,0.25);
-                    letter-spacing:-0.02em;">Investment </div>
+                    letter-spacing:-0.02em;">IA</div>
         <div>
             <div style="font-size:1.2rem;font-weight:700;color:#111827;letter-spacing:-0.03em;line-height:1.2;">
                 Investment Analysis</div>

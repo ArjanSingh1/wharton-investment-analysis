@@ -123,41 +123,36 @@ class SentimentAgent(BaseAgent):
             details['key_events'] = []
         
         # Composite score - only calculate if we have a valid sentiment score
-        if scores['news_sentiment_score'] is not None:
+        if scores.get('news_sentiment_score') is not None:
             composite_score = (
                 scores['news_sentiment_score'] * 0.7 +
                 scores['event_score'] * 0.3
             )
         else:
-            # Cannot calculate sentiment without scraped articles
-            composite_score = None
-            logger.warning(f"❌ Cannot calculate sentiment score for {ticker} - no scraped articles available")
-        
+            # Default to neutral when news is unavailable
+            composite_score = 50.0
+            logger.warning(f"Using neutral default score (50) for {ticker} - news retrieval unsuccessful")
+
         # Use enhanced news for explanations and rationale (only scraped articles)
         news_for_analysis = enhanced_news if enhanced_news else []
-        
-        if composite_score is not None:
+
+        if scores.get('news_sentiment_score') is not None:
             # Generate detailed scoring explanation
             scoring_explanation = self._generate_scoring_explanation(ticker, scores, details, composite_score, news_for_analysis, events)
             details['scoring_explanation'] = scoring_explanation
-            
+
             # Generate rationale with enhanced news (includes scraped articles and URLs)
             rationale = self._generate_rationale(ticker, news_for_analysis, events, composite_score)
-            
-            return {
-                'score': round(composite_score, 2),
-                'rationale': rationale,
-                'details': details,
-                'component_scores': scores
-            }
         else:
-            # No sentiment score available - return failure state
-            return {
-                'score': None,
-                'rationale': f"Sentiment analysis unavailable for {ticker}: Unable to retrieve and scrape news articles from reliable sources. Perplexity AI did not return valid article URLs or scraping failed.",
-                'details': details,
-                'component_scores': scores
-            }
+            rationale = f"Sentiment analysis for {ticker} used a neutral default score (50/100) because recent news articles could not be retrieved from financial sources. This does not indicate positive or negative sentiment - it reflects limited news coverage availability."
+            details['scoring_explanation'] = "News retrieval unsuccessful - neutral default applied."
+
+        return {
+            'score': round(composite_score, 2),
+            'rationale': rationale,
+            'details': details,
+            'component_scores': scores
+        }
     
     def _analyze_news_sentiment(self, news_items: List[Dict], ticker: str) -> float:
         """

@@ -285,13 +285,17 @@ class ValueAgent(BaseAgent):
         composite_score = actual_score if actual_score is not None else (sum(scores.values()) / len(scores) if scores else 50)
         
         # Enhanced system prompt for comprehensive value analysis
-        system_prompt = """You are a senior value investment analyst at a top-tier investment firm. 
+        system_prompt = """You are a senior value investment analyst at a top-tier investment firm.
 You specialize in identifying undervalued stocks using fundamental analysis. Your analysis should be:
 1. Professional and detailed, explaining the specific metrics that drive your valuation
-2. Context-aware, considering sector norms and market conditions  
+2. Context-aware, considering sector norms and market conditions
 3. Forward-looking, discussing implications for investors
 4. Specific about what makes this stock attractive or concerning from a value perspective
-5. Around 100-150 words with clear, actionable insights"""
+5. Around 100-150 words with clear, actionable insights
+
+CRITICAL: You MUST cite specific numerical values from the data provided (e.g., "The P/E ratio of 28.5x trades at a 12% discount..." or "Dividend yield of 1.8% provides...").
+Reference the exact metrics and scores given to you. Explain HOW each metric contributed to the final score.
+State which data sources informed your analysis (e.g., P/E ratio, dividend yield, FCF yield, EV/EBITDA)."""
         
         # Get all component scores for comprehensive context
         pe_score = scores.get('pe_score', 50)

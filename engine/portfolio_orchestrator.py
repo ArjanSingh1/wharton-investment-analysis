@@ -90,83 +90,36 @@ class PortfolioOrchestrator:
         """
         logger.info(f"Starting comprehensive analysis for {ticker} as of {analysis_date}")
         
-        # Simple progress tracking function with adaptive time estimates
+        # Simple progress tracking function with EMA-smoothed time estimates
         def update_progress(message, progress_pct):
             import streamlit as st
             import time
-            
+
             try:
-                logger.info(f"🔧 update_progress called: {progress_pct}% - {message}")
-                
-                if not hasattr(st, 'session_state'):
-                    logger.warning("⚠️ st.session_state not available")
+                if not hasattr(st, 'session_state') or not hasattr(st.session_state, 'analysis_progress'):
                     return
-                    
-                if not hasattr(st.session_state, 'analysis_progress'):
-                    logger.warning("⚠️ analysis_progress not in session_state")
-                    return
-                
+
                 progress = st.session_state.analysis_progress
-                logger.info(f"🔧 Progress dict keys: {progress.keys()}")
-                
+
                 # Update progress bar
                 if progress.get('progress_bar'):
                     progress['progress_bar'].progress(progress_pct / 100.0)
-                    logger.info(f"✅ Updated progress bar to {progress_pct}%")
-                else:
-                    logger.warning("⚠️ progress_bar not found")
-                
-                # Update status text with inline time remaining
+
+                # Update status text with smoothed time remaining
                 if progress.get('status_text'):
-                    # Calculate time remaining for inline display
                     time_display = ""
-                    if progress.get('start_time') and progress_pct >= 5:
+                    if progress.get('start_time') and progress_pct >= 3:
                         elapsed = time.time() - progress['start_time']
-                        logger.info(f"🔧 Elapsed time: {elapsed:.1f}s, Progress: {progress_pct}%")
-                        
-                        # Debug: Check session state
-                        if hasattr(st.session_state, 'analysis_times'):
-                            logger.info(f"🔧 Historical times available: {len(st.session_state.analysis_times)} entries: {st.session_state.analysis_times}")
-                        else:
-                            logger.info(f"🔧 No historical times in session state")
-                        
-                        # Strategy 1: Use historical average if available
-                        if hasattr(st.session_state, 'analysis_times') and len(st.session_state.analysis_times) > 0:
-                            avg_total_time = sum(st.session_state.analysis_times) / len(st.session_state.analysis_times)
-                            estimated_remaining = avg_total_time * (1 - progress_pct / 100.0)
-                            logger.info(f"📊 Using historical average: {avg_total_time:.1f}s total, {estimated_remaining:.1f}s remaining (based on {len(st.session_state.analysis_times)} past runs)")
-                        # Strategy 2: Use current progress rate
-                        elif progress_pct >= 10:
-                            rate = elapsed / progress_pct
-                            estimated_remaining = rate * (100 - progress_pct)
-                            logger.info(f"📊 Using adaptive rate: {rate:.2f}s per %, {estimated_remaining:.1f}s remaining")
-                        else:
-                            estimated_remaining = None
-                            logger.info(f"🔧 Not enough progress to estimate ({progress_pct}%)")
-                        
-                        # Format time display
-                        if estimated_remaining and estimated_remaining > 0:
-                            if estimated_remaining < 60:
-                                time_display = f" ⏱️ ~{int(estimated_remaining)}s"
-                            else:
-                                mins = int(estimated_remaining // 60)
-                                secs = int(estimated_remaining % 60)
-                                time_display = f" ⏱️ ~{mins}m {secs}s"
-                            logger.info(f"✅ Time display formatted: {time_display}")
-                    
-                    # Show message with inline time remaining
-                    full_message = f"{message}{time_display}"
-                    progress['status_text'].text(full_message)
-                    logger.info(f"✅ Updated status text: {full_message}")
-                else:
-                    logger.warning("⚠️ status_text not found")
-                
-                time.sleep(0.1)  # Delay to ensure Streamlit renders
-                
+                        time_display = PortfolioOrchestrator._estimate_time_remaining(
+                            elapsed, progress_pct, st.session_state
+                        )
+
+                    progress['status_text'].text(f"{message}{time_display}")
+
+                time.sleep(0.05)
+
             except Exception as e:
-                logger.error(f"❌ Progress update failed: {e}")
-                import traceback
-                traceback.print_exc()
+                logger.error(f"Progress update failed: {e}")
         
         # Set agent weights for this analysis if provided
         if agent_weights:
@@ -366,6 +319,85 @@ class PortfolioOrchestrator:
             agent_weights=agent_weights
         )
     
+    @staticmethod
+    def _estimate_time_remaining(elapsed: float, progress_pct: float, session_state=None) -> str:
+        """
+        Estimate time remaining with EMA smoothing for a stable display.
+
+        Uses three strategies blended together:
+        1. Historical average from past runs (most reliable after first run)
+        2. Current rate extrapolation (adapts to current conditions)
+        3. EMA smoothing on the previous estimate (prevents jumps)
+
+        Returns formatted time string like " ~45s" or " ~1m 30s", or "" if not enough data.
+        """
+        import time as _time
+
+        if progress_pct < 3 or elapsed < 1.0:
+            return ""
+
+        estimated_remaining = None
+        historical_estimate = None
+        rate_estimate = None
+
+        # Strategy 1: Historical average
+        if session_state is not None:
+            hist = getattr(session_state, 'analysis_times', None)
+            if hist and len(hist) > 0:
+                avg_total = sum(hist) / len(hist)
+                historical_estimate = avg_total * (1 - progress_pct / 100.0)
+
+        # Strategy 2: Current rate extrapolation
+        if progress_pct >= 5:
+            rate = elapsed / progress_pct
+            rate_estimate = rate * (100 - progress_pct)
+
+        # Blend strategies based on available data and progress
+        if historical_estimate is not None and rate_estimate is not None:
+            # Blend: early on trust history more, later trust current rate more
+            history_weight = max(0.2, 1.0 - (progress_pct / 100.0))
+            estimated_remaining = (historical_estimate * history_weight +
+                                   rate_estimate * (1 - history_weight))
+        elif historical_estimate is not None:
+            estimated_remaining = historical_estimate
+        elif rate_estimate is not None:
+            estimated_remaining = rate_estimate
+        else:
+            return ""
+
+        # EMA smoothing: prevent jumps by blending with previous estimate
+        if session_state is not None:
+            prev = getattr(session_state, '_eta_previous', None)
+            if prev is not None and prev > 0:
+                alpha = 0.3  # Smoothing factor — lower = smoother
+                # Cap increases to 20% of previous to avoid upward jumps
+                if estimated_remaining > prev * 1.2:
+                    estimated_remaining = prev * 1.2
+                estimated_remaining = alpha * estimated_remaining + (1 - alpha) * prev
+            # Store for next call
+            try:
+                session_state._eta_previous = estimated_remaining
+            except Exception:
+                pass
+
+        # Force decay in last 15% — ETA should only go down near completion
+        if progress_pct >= 85 and estimated_remaining is not None:
+            decay_factor = max(0.0, (100 - progress_pct) / 15.0)
+            estimated_remaining *= decay_factor
+
+        # Ensure non-negative
+        if estimated_remaining is None or estimated_remaining <= 0:
+            return ""
+
+        # Format
+        remaining = max(1, int(estimated_remaining))
+        if remaining < 60:
+            return f" ~{remaining}s"
+        else:
+            mins = remaining // 60
+            secs = remaining % 60
+            return f" ~{mins}m {secs}s"
+
     def _blend_scores(self, agent_results: Dict[str, Dict]) -> float:
         """
         Blend agent scores using configured weights with UPSIDE POTENTIAL MULTIPLIER.
@@ -582,75 +614,36 @@ class PortfolioOrchestrator:
             'analysis_date': analysis_date,
         }
         
-        # Simple sub-progress function with adaptive time estimates
+        # Sub-progress function with EMA-smoothed time estimates
         def update_sub_progress(message, progress_pct):
             import streamlit as st
             import time
-            
+
             try:
-                logger.info(f"🔧 update_sub_progress called: {progress_pct}% - {message}")
-                
-                if not hasattr(st, 'session_state'):
-                    logger.warning("⚠️ st.session_state not available")
+                if not hasattr(st, 'session_state') or not hasattr(st.session_state, 'analysis_progress'):
                     return
-                    
-                if not hasattr(st.session_state, 'analysis_progress'):
-                    logger.warning("⚠️ analysis_progress not in session_state")
-                    return
-                
+
                 progress = st.session_state.analysis_progress
-                
-                # Calculate time remaining for inline display
-                time_display = ""
-                if progress.get('start_time') and progress_pct and progress_pct >= 5:
-                    elapsed = time.time() - progress['start_time']
-                    logger.info(f"🔧 Elapsed time: {elapsed:.1f}s, Progress: {progress_pct}%")
-                    
-                    # Debug: Check session state
-                    if hasattr(st.session_state, 'analysis_times'):
-                        logger.info(f"🔧 Historical times available: {len(st.session_state.analysis_times)} entries")
-                    
-                    # Use historical average if available
-                    if hasattr(st.session_state, 'analysis_times') and len(st.session_state.analysis_times) > 0:
-                        avg_total_time = sum(st.session_state.analysis_times) / len(st.session_state.analysis_times)
-                        estimated_remaining = avg_total_time * (1 - progress_pct / 100.0)
-                        logger.info(f"📊 Using historical average: {avg_total_time:.1f}s total, {estimated_remaining:.1f}s remaining (based on {len(st.session_state.analysis_times)} past runs)")
-                    else:
-                        # Adaptive estimate based on current progress rate
-                        if progress_pct >= 10:
-                            rate = elapsed / progress_pct  # seconds per percent
-                            estimated_remaining = rate * (100 - progress_pct)
-                            logger.info(f"📊 Using adaptive rate: {rate:.2f}s per %, {estimated_remaining:.1f}s remaining")
-                        else:
-                            estimated_remaining = None
-                    
-                    # Format time display
-                    if estimated_remaining and estimated_remaining > 0:
-                        if estimated_remaining < 60:
-                            time_display = f" ⏱️ ~{int(estimated_remaining)}s"
-                        else:
-                            mins = int(estimated_remaining // 60)
-                            secs = int(estimated_remaining % 60)
-                            time_display = f" ⏱️ ~{mins}m {secs}s"
-                        logger.info(f"🔧 Time remaining: {time_display}")
-                
-                # Update status text with inline time
+
+                # Update status text with smoothed time remaining
                 if progress.get('status_text'):
-                    full_message = f"{message}{time_display}"
-                    progress['status_text'].text(full_message)
-                    logger.info(f"✅ Updated status text: {full_message}")
-                
+                    time_display = ""
+                    if progress.get('start_time') and progress_pct and progress_pct >= 3:
+                        elapsed = time.time() - progress['start_time']
+                        time_display = PortfolioOrchestrator._estimate_time_remaining(
+                            elapsed, progress_pct, st.session_state
+                        )
+
+                    progress['status_text'].text(f"{message}{time_display}")
+
                 # Update progress bar
                 if progress_pct is not None and progress.get('progress_bar'):
                     progress['progress_bar'].progress(progress_pct / 100.0)
-                    logger.info(f"✅ Updated progress bar to {progress_pct}%")
-                
-                time.sleep(0.1)  # Delay to ensure Streamlit renders
-                
+
+                time.sleep(0.05)
+
             except Exception as e:
-                logger.error(f"❌ Sub-progress update failed: {e}")
-                import traceback
-                traceback.print_exc()
+                logger.error(f"Sub-progress update failed: {e}")
         
         benchmark = self.ips_config.get('universe', {}).get('benchmark', '^GSPC')
         

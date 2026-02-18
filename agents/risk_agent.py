@@ -58,34 +58,44 @@ class RiskAgent(BaseAgent):
         is_low_risk_asset = self._is_low_risk_asset(ticker, fundamentals)
         details['is_low_risk_asset'] = is_low_risk_asset
         
-        # 1. Volatility Analysis
+        # 1. Volatility Analysis - always produce a numeric volatility_pct
         if not price_history.empty and 'Returns' in price_history.columns:
             returns = price_history['Returns'].dropna()
-            
-            if len(returns) > 20:
+
+            if len(returns) >= 5:
                 # Annualized volatility
                 volatility = returns.std() * np.sqrt(252) * 100
-                
+
                 # VERY CRITICAL volatility scoring - penalize anything above 18%
                 # Excellent: <12%, Acceptable: 12-18%, Concerning: 18-25%, High Risk: 25-35%, Extreme: >35%
-                if volatility < 12:
-                    vol_score = 80 + (12 - volatility) * 1.5  # 80-100 for very low vol
-                elif volatility < 18:
-                    vol_score = 55 + (18 - volatility) * 4.2  # 55-80 for acceptable vol
-                elif volatility < 25:
-                    vol_score = 25 + (25 - volatility) * 4.3  # 25-55 for concerning vol
-                elif volatility < 35:
-                    vol_score = 5 + (35 - volatility) * 2.0   # 5-25 for high risk vol
-                else:
-                    vol_score = max(0, 5 - (volatility - 35) * 0.2)  # 0-5 for extreme vol
-                scores['volatility_score'] = vol_score
+                scores['volatility_score'] = self._score_volatility(volatility)
                 details['volatility_pct'] = round(volatility, 2)
+                details['volatility_data_quality'] = 'high' if len(returns) >= 100 else 'moderate' if len(returns) >= 20 else 'limited'
+            else:
+                # Fallback: estimate volatility from beta if available
+                beta_val = fundamentals.get('beta')
+                if beta_val and isinstance(beta_val, (int, float)):
+                    estimated_vol = abs(beta_val) * 18.0  # Market vol ~18%, scale by beta
+                    scores['volatility_score'] = self._score_volatility(estimated_vol)
+                    details['volatility_pct'] = round(estimated_vol, 2)
+                    details['volatility_data_quality'] = 'estimated_from_beta'
+                    logger.info(f"Estimated volatility for {ticker} from beta ({beta_val}): {estimated_vol:.1f}%")
+                else:
+                    scores['volatility_score'] = 50
+                    details['volatility_pct'] = 20.0  # Market average as default
+                    details['volatility_data_quality'] = 'default_estimate'
+        else:
+            # No price history at all - estimate from beta or use market average
+            beta_val = fundamentals.get('beta')
+            if beta_val and isinstance(beta_val, (int, float)):
+                estimated_vol = abs(beta_val) * 18.0
+                scores['volatility_score'] = self._score_volatility(estimated_vol)
+                details['volatility_pct'] = round(estimated_vol, 2)
+                details['volatility_data_quality'] = 'estimated_from_beta'
             else:
                 scores['volatility_score'] = 50
-                details['volatility_pct'] = None
-        else:
-            scores['volatility_score'] = 50
-            details['volatility_pct'] = None
+                details['volatility_pct'] = 20.0  # Market average as default
+                details['volatility_data_quality'] = 'default_estimate'
         
         # 2. Beta Analysis - VERY CRITICAL assessment
         beta = fundamentals.get('beta', 1.0)
@@ -181,6 +191,19 @@ class RiskAgent(BaseAgent):
             'component_scores': scores
         }
     
+    def _score_volatility(self, volatility: float) -> float:
+        """Score volatility on 0-100 scale. Lower volatility = higher score."""
+        if volatility < 12:
+            return 80 + (12 - volatility) * 1.5  # 80-100 for very low vol
+        elif volatility < 18:
+            return 55 + (18 - volatility) * 4.2  # 55-80 for acceptable vol
+        elif volatility < 25:
+            return 25 + (25 - volatility) * 4.3  # 25-55 for concerning vol
+        elif volatility < 35:
+            return 5 + (35 - volatility) * 2.0   # 5-25 for high risk vol
+        else:
+            return max(0, 5 - (volatility - 35) * 0.2)  # 0-5 for extreme vol
+
     def _is_low_risk_asset(self, ticker: str, fundamentals: Dict) -> bool:
         """
         Determine if this is a low-risk asset (big stocks or ETFs).
@@ -376,7 +399,11 @@ Your analysis should be:
 2. Context-aware, considering market conditions and portfolio construction principles
 3. Forward-looking, discussing potential downside scenarios and risk management
 4. Specific about what drives the risk profile and how it affects investment suitability
-5. Around 120-180 words with clear, actionable risk insights"""
+5. Around 120-180 words with clear, actionable risk insights
+
+CRITICAL: You MUST cite specific numerical values from the data provided (e.g., "With annualized volatility of 24.3%..." or "The beta of 1.21 indicates...").
+Reference the exact metrics and scores given to you. Explain HOW each metric contributed to the final score.
+State which data sources informed your analysis (e.g., price history, fundamental data, beta coefficient)."""
         
         risk_boost = details.get('risk_boost_applied', 0)
         is_low_risk = details.get('is_low_risk_asset', False)
