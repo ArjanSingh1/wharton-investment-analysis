@@ -100,12 +100,22 @@ class PortfolioOrchestrator:
         PHASE_AGENTS = (42, 98)         # 42% to 98%
         PHASE_FINALIZE = (98, 100)      # 98% to 100%
 
-        # Default phase durations (seconds) - calibrated from real test runs
-        DEFAULT_DATA_GATHER_DURATION = 35
-        DEFAULT_AGENTS_DURATION = 48
+        # Default phase durations (seconds) - calibrated from multi-ticker test runs
+        # AAPL: 40.3s+46.8s=87.1s, GOOGL: 35.6s+45.2s=80.8s, NVDA: 35.0s+42.6s=77.6s
+        DEFAULT_DATA_GATHER_DURATION = 37
+        DEFAULT_AGENTS_DURATION = 45
         DEFAULT_FINALIZE_DURATION = 1
 
         analysis_start_time = time.time()
+
+        # Reset ETA tracking for this new analysis
+        # (prevents stale _eta_previous from previous runs causing counting-up bug)
+        import streamlit as st
+        try:
+            if hasattr(st, 'session_state'):
+                st.session_state._eta_previous = None
+        except Exception:
+            pass
 
         # Smooth progress tracking with background interpolation
         _progress_lock = threading.Lock()
@@ -207,7 +217,6 @@ class PortfolioOrchestrator:
 
         # Start smooth interpolator for data gathering phase
         data_gather_duration = DEFAULT_DATA_GATHER_DURATION
-        import streamlit as st
         if hasattr(st, 'session_state'):
             hist = getattr(st.session_state, 'analysis_phase_times', {})
             if 'data_gather' in hist and len(hist['data_gather']) > 0:
@@ -222,7 +231,23 @@ class PortfolioOrchestrator:
 
         data_gather_start = time.time()
         try:
-            data = self._gather_data(ticker, analysis_date, existing_portfolio)
+            def data_progress_cb(msg):
+                """Callback for granular data gathering updates."""
+                with _progress_lock:
+                    _current_progress['message'] = msg
+                try:
+                    progress = st.session_state.analysis_progress
+                    if progress.get('status_text'):
+                        elapsed = time.time() - progress.get('start_time', analysis_start_time)
+                        pct = _current_progress.get('pct', 5)
+                        time_display = PortfolioOrchestrator._estimate_time_remaining(
+                            elapsed, pct, st.session_state
+                        )
+                        progress['status_text'].text(f"{msg}{time_display}")
+                except Exception:
+                    pass
+
+            data = self._gather_data(ticker, analysis_date, existing_portfolio, progress_callback=data_progress_cb)
         except Exception as e:
             logger.error(f"Error gathering data for {ticker}: {e}")
             import traceback
@@ -495,8 +520,8 @@ class PortfolioOrchestrator:
 
         # Phase definitions: (start_pct, end_pct, default_duration_seconds)
         phases = [
-            (0, 42, 35),    # Data gathering
-            (42, 98, 48),   # Agent analysis
+            (0, 42, 37),    # Data gathering
+            (42, 98, 45),   # Agent analysis
             (98, 100, 1),   # Finalization
         ]
 
@@ -752,7 +777,8 @@ class PortfolioOrchestrator:
         self,
         ticker: str,
         analysis_date: str,
-        existing_portfolio: Dict = None
+        existing_portfolio: Dict = None,
+        progress_callback=None
     ) -> Dict[str, Any]:
         """Gather all necessary data for analysis using parallel API calls for speed."""
         # Calculate date range (1 year lookback) - ensure no future dates
@@ -772,6 +798,9 @@ class PortfolioOrchestrator:
         }
 
         benchmark = self.ips_config.get('universe', {}).get('benchmark', '^GSPC')
+
+        if progress_callback:
+            progress_callback(f"Querying Polygon, Alpha Vantage, Perplexity for {ticker} fundamentals...")
 
         # PARALLEL DATA GATHERING - Run all 3 API calls simultaneously
         with ThreadPoolExecutor(max_workers=3) as executor:
@@ -804,6 +833,13 @@ class PortfolioOrchestrator:
                 self._create_benchmark_data, benchmark, start_date, end_date
             )
 
+            task_labels = {
+                'fundamentals': 'Fundamentals (P/E, EPS, market cap, financials)',
+                'price_history': 'Price history (1 year daily prices)',
+                'benchmark': 'Benchmark data (S&P 500 comparison)'
+            }
+            completed_tasks = []
+
             # Collect results using as_completed for real parallel processing
             future_to_name = {v: k for k, v in futures.items()}
             for future in as_completed(futures.values()):
@@ -821,8 +857,17 @@ class PortfolioOrchestrator:
                     elif name == 'benchmark':
                         data['benchmark_history'] = result
                     logger.info(f"Data task '{name}' completed for {ticker}")
+                    completed_tasks.append(name)
+
+                    if progress_callback:
+                        remaining = [task_labels[n] for n in futures if n not in completed_tasks]
+                        if remaining:
+                            progress_callback(f"Received {task_labels[name]}. Waiting: {remaining[0]}...")
+                        else:
+                            progress_callback(f"All data received for {ticker}. Processing...")
                 except Exception as e:
                     logger.error(f"Failed to get {name} for {ticker}: {e}")
+                    completed_tasks.append(name)
                     if name == 'fundamentals':
                         data['fundamentals'] = {}
                     elif name == 'price_history':

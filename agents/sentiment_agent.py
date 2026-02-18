@@ -1048,17 +1048,20 @@ Return ONLY the 5 URLs, one per line, with no other text or formatting."""
             """Parse article date with multiple fallback strategies."""
             # Try different date fields
             date_fields = ['publishedAt', 'published_at', 'date', 'timestamp']
-            
+
             for field in date_fields:
                 date_str = article.get(field)
                 if date_str:
                     try:
-                        # Handle ISO format dates
                         if isinstance(date_str, str):
-                            # Try parsing with dateutil (handles most formats)
                             parsed_date = dateutil.parser.parse(date_str)
+                            # Normalize to UTC-aware to avoid comparison errors
+                            if parsed_date.tzinfo is None:
+                                parsed_date = parsed_date.replace(tzinfo=timezone.utc)
                             return parsed_date
                         elif isinstance(date_str, datetime):
+                            if date_str.tzinfo is None:
+                                return date_str.replace(tzinfo=timezone.utc)
                             return date_str
                     except Exception as e:
                         logger.debug(f"Failed to parse date '{date_str}' with dateutil: {e}")
