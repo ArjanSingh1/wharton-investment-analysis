@@ -152,8 +152,20 @@ class SentimentAgent(BaseAgent):
             composite_score = 50.0
             logger.warning(f"Using neutral default score (50) for {ticker} - news retrieval unsuccessful")
 
-        # Use enhanced news for explanations and rationale (only scraped articles)
-        news_for_analysis = enhanced_news if enhanced_news else []
+        # Build the best available article list for rationale generation.
+        # Priority: (1) scraped enhanced articles, (2) unscraped enhanced articles,
+        # (3) Perplexity-direct articles stored in details['article_details'].
+        # This ensures the rationale generator always receives the articles that
+        # were actually used for scoring, preventing the "limited news coverage"
+        # fallback from firing when we have real Perplexity results.
+        if enhanced_news:
+            scraped = [a for a in enhanced_news if 'scraped_content' in a and a.get('scraped_content')]
+            news_for_analysis = scraped if scraped else enhanced_news
+        else:
+            news_for_analysis = []
+
+        if not news_for_analysis and details.get('article_details'):
+            news_for_analysis = details['article_details']
 
         if scores.get('news_sentiment_score') is not None:
             # Generate detailed scoring explanation
