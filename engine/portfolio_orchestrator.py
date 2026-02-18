@@ -16,7 +16,6 @@ from agents.growth_momentum_agent import GrowthMomentumAgent
 from agents.macro_regime_agent import MacroRegimeAgent
 from agents.risk_agent import RiskAgent
 from agents.sentiment_agent import SentimentAgent
-from agents.client_layer_agent import ClientLayerAgent
 from data.enhanced_data_provider import EnhancedDataProvider
 from engine.ai_portfolio_selector import AIPortfolioSelector
 
@@ -53,10 +52,7 @@ class PortfolioOrchestrator:
         self.agents['macro_regime_agent'] = MacroRegimeAgent(model_config, openai_client)
         self.agents['risk_agent'] = RiskAgent(model_config, openai_client)
         self.agents['sentiment_agent'] = SentimentAgent(model_config, openai_client)
-        
-        # Meta agents
-        self.agents['client_layer_agent'] = ClientLayerAgent(model_config, ips_config, openai_client)
-        
+
         # Initialize AI Portfolio Selector
         if openai_client and perplexity_client:
             self.ai_selector = AIPortfolioSelector(
@@ -207,8 +203,6 @@ class PortfolioOrchestrator:
                 'agent_results': {},
                 'agent_scores': {},
                 'agent_rationales': {},
-                'client_result': {'score': 0, 'rationale': f'Data gathering failed: {str(e)}', 'eligible': False},
-                'client_layer': {'score': 0, 'rationale': f'Data gathering failed: {str(e)}', 'eligible': False},
                 'blended_score': 0,
                 'final_score': 0,
                 'eligible': False
@@ -225,8 +219,6 @@ class PortfolioOrchestrator:
                 'agent_results': {},
                 'agent_scores': {},
                 'agent_rationales': {},
-                'client_result': {'score': 0, 'rationale': 'No data available', 'eligible': False},
-                'client_layer': {'score': 0, 'rationale': 'No data available', 'eligible': False},
                 'blended_score': 0,
                 'final_score': 0,
                 'eligible': False
@@ -300,33 +292,24 @@ class PortfolioOrchestrator:
                 }
         
         # 3. Blend scores with weighted averaging
-        update_progress(f"⚖️ Blending agent scores with weights", 80)
+        update_progress(f"Blending agent scores with weights", 80)
         blended_score = self._blend_scores(agent_results)
-        
-        # 4. Apply client layer validation
-        update_progress(f"🔍 Running client suitability validation", 90)
-        client_result = self.agents['client_layer_agent'].analyze(ticker, {
-            'agent_results': agent_results,
-            'blended_score': blended_score,
-            'fundamentals': data['fundamentals']
-        })
-        
-        # 5. Final result
-        eligibility = "✅ Eligible" if client_result.get('eligible', False) else "❌ Not Eligible"
-        update_progress(f"✅ Analysis complete: {client_result['score']:.1f}/100, {eligibility}", 100)
-        
+
+        # 4. Determine eligibility based on IPS constraints
+        update_progress(f"Checking IPS constraints", 90)
+        eligible = self._check_ips_eligibility(ticker, data.get('fundamentals', {}), blended_score)
+        final_score = blended_score
+
+        update_progress(f"Analysis complete: {final_score:.1f}/100", 100)
+
         # Restore original weights if they were changed
         if agent_weights:
             self.agent_weights = original_weights
-        
+
         # Extract agent scores and rationales for backward compatibility
         agent_scores = {agent_name: result.get('score', 50) for agent_name, result in agent_results.items()}
         agent_rationales = {agent_name: result.get('rationale', 'Analysis not available') for agent_name, result in agent_results.items()}
-        
-        # Add client layer agent's independent compliance score to agent_scores
-        agent_scores['client_layer_agent'] = client_result.get('compliance_score', client_result.get('score', 50))
-        agent_rationales['client_layer_agent'] = client_result.get('rationale', 'Client layer analysis')
-        
+
         return {
             'ticker': ticker,
             'analysis_date': analysis_date,
@@ -334,12 +317,10 @@ class PortfolioOrchestrator:
             'agent_scores': agent_scores,
             'agent_rationales': agent_rationales,
             'blended_score': blended_score,
-            'client_result': client_result,
-            'client_layer': client_result,  # Alias for backward compatibility
-            'final_score': client_result['score'],
-            'eligible': client_result.get('eligible', False),
-            'recommendation': self._generate_recommendation(client_result['score'], client_result.get('eligible', False)),
-            'rationale': self._generate_comprehensive_rationale(ticker, agent_results, client_result, data),
+            'final_score': final_score,
+            'eligible': eligible,
+            'recommendation': self._generate_recommendation(final_score, eligible),
+            'rationale': self._generate_comprehensive_rationale_simple(ticker, agent_results, final_score, data),
             'fundamentals': data.get('fundamentals', {}),
             'price_history': data.get('price_history', {})
         }
@@ -460,7 +441,7 @@ class PortfolioOrchestrator:
     def _generate_recommendation(self, score: float, eligible: bool) -> str:
         """Generate investment recommendation based on score and eligibility."""
         if not eligible:
-            return "AVOID - Does not meet client criteria"
+            return "AVOID - Does not meet investment criteria"
         elif score >= 80:
             return "STRONG BUY"
         elif score >= 70:
@@ -472,280 +453,101 @@ class PortfolioOrchestrator:
         else:
             return "SELL"
     
-    def _generate_comprehensive_rationale(self, ticker: str, agent_results: Dict, client_result: Dict, data: Dict) -> str:
-        """
-        Generate comprehensive investment rationale with complete context.
-        Includes all data points, agent scores, weight analysis, and detailed reasoning.
-        """
+    def _generate_comprehensive_rationale_simple(self, ticker: str, agent_results: Dict, final_score: float, data: Dict) -> str:
+        """Generate comprehensive investment rationale."""
         fundamentals = data.get('fundamentals', {})
-        
-        # Build comprehensive rationale with all context
         rationale_parts = []
-        
-        # ========== SECTION 1: EXECUTIVE SUMMARY ==========
+
         rationale_parts.append("=" * 80)
         rationale_parts.append(f"COMPREHENSIVE INVESTMENT ANALYSIS: {ticker}")
         rationale_parts.append("=" * 80)
-        
-        # Company overview
+
         company_name = fundamentals.get('name', ticker)
         sector = fundamentals.get('sector', 'Unknown')
-        
-        rationale_parts.append(f"\n📊 COMPANY OVERVIEW:")
+        rationale_parts.append(f"\nCOMPANY OVERVIEW:")
         rationale_parts.append(f"Company: {company_name}")
         rationale_parts.append(f"Sector: {sector}")
-        rationale_parts.append(f"Ticker: {ticker}")
-        
-        # ========== SECTION 2: KEY FINANCIAL METRICS ==========
-        rationale_parts.append(f"\n💰 KEY FINANCIAL METRICS:")
-        
+
+        rationale_parts.append(f"\nKEY FINANCIAL METRICS:")
         price = fundamentals.get('price')
         if price:
             rationale_parts.append(f"Current Price: ${price:.2f}")
-        
         market_cap = fundamentals.get('market_cap')
         if market_cap:
             if market_cap >= 1e12:
-                market_cap_str = f"${market_cap/1e12:.2f}T"
+                rationale_parts.append(f"Market Cap: ${market_cap/1e12:.2f}T")
             elif market_cap >= 1e9:
-                market_cap_str = f"${market_cap/1e9:.2f}B"
-            elif market_cap >= 1e6:
-                market_cap_str = f"${market_cap/1e6:.2f}M"
+                rationale_parts.append(f"Market Cap: ${market_cap/1e9:.2f}B")
             else:
-                market_cap_str = f"${market_cap:,.0f}"
-            rationale_parts.append(f"Market Cap: {market_cap_str}")
-        
+                rationale_parts.append(f"Market Cap: ${market_cap/1e6:.2f}M")
         pe_ratio = fundamentals.get('pe_ratio')
         if pe_ratio:
             rationale_parts.append(f"P/E Ratio: {pe_ratio:.2f}")
-        
-        eps = fundamentals.get('eps')
-        if eps:
-            rationale_parts.append(f"EPS: ${eps:.2f}")
-        
         beta = fundamentals.get('beta')
         if beta:
             rationale_parts.append(f"Beta: {beta:.2f}")
-        
         dividend_yield = fundamentals.get('dividend_yield')
         if dividend_yield:
             rationale_parts.append(f"Dividend Yield: {dividend_yield*100:.2f}%")
-        
-        week_52_low = fundamentals.get('week_52_low')
-        week_52_high = fundamentals.get('week_52_high')
-        if week_52_low and week_52_high:
-            rationale_parts.append(f"52-Week Range: ${week_52_low:.2f} - ${week_52_high:.2f}")
-            if price:
-                position = ((price - week_52_low) / (week_52_high - week_52_low)) * 100
-                rationale_parts.append(f"Position in Range: {position:.1f}%")
-        
-        volume = fundamentals.get('volume')
-        if volume:
-            rationale_parts.append(f"Average Volume: {volume:,.0f}")
-        
-        # ========== SECTION 3: MULTI-AGENT ANALYSIS BREAKDOWN ==========
-        rationale_parts.append(f"\n🤖 MULTI-AGENT ANALYSIS (Detailed Breakdown):")
+
+        rationale_parts.append(f"\nMULTI-AGENT ANALYSIS:")
         rationale_parts.append("=" * 80)
-        
-        # Order agents for presentation
         agent_order = ['value_agent', 'growth_momentum_agent', 'macro_regime_agent', 'risk_agent', 'sentiment_agent']
         agent_labels = {
-            'value_agent': '💎 VALUE ANALYSIS',
-            'growth_momentum_agent': '📈 GROWTH & MOMENTUM ANALYSIS',
-            'macro_regime_agent': '🌍 MACROECONOMIC ANALYSIS',
-            'risk_agent': '⚠️ RISK ASSESSMENT',
-            'sentiment_agent': '📰 MARKET SENTIMENT ANALYSIS'
+            'value_agent': 'VALUE ANALYSIS',
+            'growth_momentum_agent': 'GROWTH & MOMENTUM ANALYSIS',
+            'macro_regime_agent': 'MACROECONOMIC ANALYSIS',
+            'risk_agent': 'RISK ASSESSMENT',
+            'sentiment_agent': 'MARKET SENTIMENT ANALYSIS'
         }
-        
         for agent_name in agent_order:
             if agent_name in agent_results:
                 result = agent_results[agent_name]
                 score = result.get('score', 50)
                 rationale = result.get('rationale', 'Analysis not available')
-                details = result.get('details', {})
-                
                 rationale_parts.append(f"\n{agent_labels.get(agent_name, agent_name.upper())}:")
                 rationale_parts.append(f"Score: {score:.2f}/100")
-                
-                # Add specific metrics from details if available
-                if details:
-                    rationale_parts.append("Key Metrics:")
-                    for key, value in details.items():
-                        if value is not None and key not in ['rationale', 'score']:
-                            if isinstance(value, float):
-                                rationale_parts.append(f"  • {key.replace('_', ' ').title()}: {value:.2f}")
-                            else:
-                                rationale_parts.append(f"  • {key.replace('_', ' ').title()}: {value}")
-                
-                rationale_parts.append(f"\nDetailed Analysis:")
                 rationale_parts.append(f"{rationale}")
                 rationale_parts.append("-" * 80)
-        
-        # ========== SECTION 4: WEIGHT ANALYSIS & SCORE CALCULATION ==========
-        rationale_parts.append(f"\n⚖️ WEIGHT ANALYSIS & FINAL SCORE CALCULATION:")
-        rationale_parts.append("=" * 80)
-        
-        # Calculate weighted contributions
-        total_weighted_score = 0
-        total_weight = 0
-        weight_breakdown = []
-        
-        for agent_name in agent_order:
-            if agent_name in agent_results:
-                score = agent_results[agent_name].get('score', 50)
-                weight = self.agent_weights.get(agent_name, 1.0)
-                weighted_contribution = score * weight
-                
-                total_weighted_score += weighted_contribution
-                total_weight += weight
-                
-                weight_breakdown.append({
-                    'agent': agent_name,
-                    'score': score,
-                    'weight': weight,
-                    'contribution': weighted_contribution
-                })
-        
-        # Show weight distribution
-        rationale_parts.append(f"\nAgent Weight Distribution:")
-        for item in weight_breakdown:
-            agent_display = item['agent'].replace('_agent', '').replace('_', ' ').title()
-            weight = item['weight']
-            percentage = (weight / total_weight) * 100 if total_weight > 0 else 0
-            rationale_parts.append(f"  • {agent_display}: {weight:.2f}x ({percentage:.1f}% influence)")
-        
-        # Show calculation breakdown
-        rationale_parts.append(f"\nScore Calculation Breakdown:")
-        for item in weight_breakdown:
-            agent_display = item['agent'].replace('_agent', '').replace('_', ' ').title()
-            score = item['score']
-            weight = item['weight']
-            contribution = item['contribution']
-            rationale_parts.append(f"  • {agent_display}: {score:.2f} × {weight:.2f} = {contribution:.2f}")
-        
-        # Final calculation
-        blended_score = total_weighted_score / total_weight if total_weight > 0 else 50
-        rationale_parts.append(f"\nWeighted Sum: {total_weighted_score:.2f}")
-        rationale_parts.append(f"Total Weight: {total_weight:.2f}")
-        rationale_parts.append(f"Blended Score: {total_weighted_score:.2f} / {total_weight:.2f} = {blended_score:.2f}")
-        
-        # Explain weight impact
-        rationale_parts.append(f"\nWeight Impact Analysis:")
-        
-        # Find highest and lowest weighted agents
-        max_weight_item = max(weight_breakdown, key=lambda x: x['weight'])
-        min_weight_item = min(weight_breakdown, key=lambda x: x['weight'])
-        
-        max_agent = max_weight_item['agent'].replace('_agent', '').replace('_', ' ').title()
-        min_agent = min_weight_item['agent'].replace('_agent', '').replace('_', ' ').title()
-        
-        if max_weight_item['weight'] > 1.0:
-            rationale_parts.append(f"  • {max_agent} has the highest weight ({max_weight_item['weight']:.2f}x), giving it")
-            rationale_parts.append(f"    MORE influence on the final score. Its score of {max_weight_item['score']:.2f}")
-            rationale_parts.append(f"    contributes {max_weight_item['contribution']:.2f} points to the weighted sum.")
-        
-        if min_weight_item['weight'] < 1.0:
-            rationale_parts.append(f"  • {min_agent} has the lowest weight ({min_weight_item['weight']:.2f}x), giving it")
-            rationale_parts.append(f"    LESS influence on the final score. Its score of {min_weight_item['score']:.2f}")
-            rationale_parts.append(f"    contributes {min_weight_item['contribution']:.2f} points to the weighted sum.")
-        
-        # Calculate what score would be with equal weights for comparison
-        equal_weight_score = sum(item['score'] for item in weight_breakdown) / len(weight_breakdown)
-        weight_effect = blended_score - equal_weight_score
-        
-        rationale_parts.append(f"\nComparison to Equal Weights:")
-        rationale_parts.append(f"  • Equal Weight Score (all 1.0x): {equal_weight_score:.2f}")
-        rationale_parts.append(f"  • Actual Weighted Score: {blended_score:.2f}")
-        rationale_parts.append(f"  • Weight Effect: {weight_effect:+.2f} points")
-        
-        if abs(weight_effect) > 0.5:
-            if weight_effect > 0:
-                rationale_parts.append(f"  • The custom weights INCREASED the final score by emphasizing higher-scoring agents.")
-            else:
-                rationale_parts.append(f"  • The custom weights DECREASED the final score by emphasizing lower-scoring agents.")
-        else:
-            rationale_parts.append(f"  • The custom weights had minimal impact on the final score.")
-        
-        # ========== SECTION 5: CLIENT SUITABILITY ==========
-        rationale_parts.append(f"\n🎯 CLIENT SUITABILITY ASSESSMENT:")
-        rationale_parts.append("=" * 80)
-        
-        client_score = client_result.get('score', 50)
-        client_eligible = client_result.get('eligible', False)
-        client_rationale = client_result.get('rationale', 'No client assessment available')
-        
-        rationale_parts.append(f"Client Fit Score: {client_score:.2f}/100")
-        rationale_parts.append(f"IPS Eligibility: {'✅ ELIGIBLE' if client_eligible else '❌ NOT ELIGIBLE'}")
-        rationale_parts.append(f"\nClient Assessment:")
-        rationale_parts.append(f"{client_rationale}")
-        
-        # ========== SECTION 6: FINAL RECOMMENDATION ==========
-        rationale_parts.append(f"\n📋 FINAL RECOMMENDATION:")
-        rationale_parts.append("=" * 80)
-        
-        final_score = client_result.get('score', blended_score)
-        
-        # Determine recommendation
-        if not client_eligible:
-            recommendation = "AVOID"
-            recommendation_rationale = f"Despite a blended analysis score of {blended_score:.2f}, this stock does not meet client investment criteria and should be avoided."
-        elif final_score >= 80:
-            recommendation = "STRONG BUY"
-            recommendation_rationale = f"Excellent score of {final_score:.2f} with strong fundamentals and positive outlook. Highly recommended for client portfolio."
-        elif final_score >= 70:
-            recommendation = "BUY"
-            recommendation_rationale = f"Strong score of {final_score:.2f} indicating good investment potential. Recommended for client portfolio."
-        elif final_score >= 60:
-            recommendation = "HOLD"
-            recommendation_rationale = f"Moderate score of {final_score:.2f}. Suitable for holding if already owned, but not a priority for new purchases."
-        elif final_score >= 40:
-            recommendation = "WEAK HOLD"
-            recommendation_rationale = f"Below-average score of {final_score:.2f}. Consider for reduction or exit."
-        else:
-            recommendation = "SELL"
-            recommendation_rationale = f"Low score of {final_score:.2f} indicates significant concerns. Not recommended for client portfolio."
-        
-        rationale_parts.append(f"Recommendation: {recommendation}")
+
+        rationale_parts.append(f"\nFINAL RECOMMENDATION:")
         rationale_parts.append(f"Final Score: {final_score:.2f}/100")
-        rationale_parts.append(f"Blended Agent Score: {blended_score:.2f}/100")
-        rationale_parts.append(f"\nRationale:")
-        rationale_parts.append(f"{recommendation_rationale}")
-        
-        # ========== SECTION 7: KEY INSIGHTS SUMMARY ==========
-        rationale_parts.append(f"\n💡 KEY INSIGHTS:")
         rationale_parts.append("=" * 80)
-        
-        # Extract top positive and negative factors
-        positive_factors = []
-        negative_factors = []
-        
-        for item in weight_breakdown:
-            if item['score'] >= 70:
-                agent_name = item['agent'].replace('_agent', '').replace('_', ' ').title()
-                positive_factors.append(f"• {agent_name} scores high ({item['score']:.1f}), indicating strength in this area")
-            elif item['score'] < 50:
-                agent_name = item['agent'].replace('_agent', '').replace('_', ' ').title()
-                negative_factors.append(f"• {agent_name} scores low ({item['score']:.1f}), indicating concerns in this area")
-        
-        if positive_factors:
-            rationale_parts.append("\nStrengths:")
-            rationale_parts.extend(positive_factors)
-        
-        if negative_factors:
-            rationale_parts.append("\nConcerns:")
-            rationale_parts.extend(negative_factors)
-        
-        # Market position
-        if price and week_52_low and week_52_high:
-            position = ((price - week_52_low) / (week_52_high - week_52_low)) * 100
-            if position > 80:
-                rationale_parts.append(f"• Stock is near 52-week high ({position:.1f}%), may face resistance")
-            elif position < 20:
-                rationale_parts.append(f"• Stock is near 52-week low ({position:.1f}%), potential value opportunity")
-        
-        rationale_parts.append("=" * 80)
-        
+
         return '\n'.join(rationale_parts)
+
+    def _check_ips_eligibility(self, ticker: str, fundamentals: dict, blended_score: float) -> bool:
+        """Check if a stock meets basic IPS eligibility constraints."""
+        ips = self.ips_config
+
+        # Check minimum price
+        price = fundamentals.get('price', 0)
+        min_price = ips.get('universe', {}).get('min_price', 1.0)
+        if price and price < min_price:
+            return False
+
+        # Check minimum market cap
+        market_cap = fundamentals.get('market_cap', 0)
+        min_market_cap = ips.get('universe', {}).get('min_market_cap', 0)
+        if market_cap and market_cap < min_market_cap:
+            return False
+
+        # Check excluded sectors
+        sector = fundamentals.get('sector', '')
+        excluded_sectors = ips.get('exclusions', {}).get('sectors', [])
+        if sector and excluded_sectors:
+            if sector.lower() in [s.lower() for s in excluded_sectors]:
+                return False
+
+        # Check beta range
+        beta = fundamentals.get('beta')
+        if beta:
+            beta_min = ips.get('portfolio_constraints', {}).get('beta_min', 0)
+            beta_max = ips.get('portfolio_constraints', {}).get('beta_max', 999)
+            if beta < beta_min or beta > beta_max:
+                return False
+
+        return True
     
     def _gather_data(
         self,
@@ -1069,13 +871,13 @@ class PortfolioOrchestrator:
         if challenge_context is None:
             challenge_context = """
             Generate an optimal diversified portfolio that maximizes risk-adjusted returns 
-            while adhering to the client's Investment Policy Statement constraints.
+            while adhering to the Investment Policy Statement constraints.
             Focus on high-quality companies with strong fundamentals and growth potential.
             """
         
         # Build client profile for AI selection
         client_profile = {
-            'name': 'Portfolio Client',
+            'name': 'Portfolio User',
             'ips_data': self.ips_config,
             'profile_text': challenge_context
         }

@@ -1,5 +1,5 @@
 """
-Wharton Investing Challenge - Multi-Agent Investment Analysis System
+Multi-Agent Investment Analysis System
 Main Streamlit Application
 
 This is the main entry point for the investment analysis system.
@@ -20,113 +20,305 @@ import time
 
 # Setup page config
 st.set_page_config(
-    page_title="Wharton Investment Analysis",
-    page_icon="W",
+    page_title="Investment Analysis Platform",
+    page_icon="IA",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
 # ---------------------------------------------------------------------------
-# Custom CSS - Light Minimalist Theme
+# Custom CSS - Modern Investment Platform Theme
 # ---------------------------------------------------------------------------
 CUSTOM_CSS = """
 <style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
 :root {
-    --w-primary: #635bff;
-    --w-primary-light: #7a73ff;
-    --w-primary-bg: #f0efff;
-    --w-success: #0ea371;
-    --w-success-bg: #ecfdf5;
-    --w-warning: #d97706;
-    --w-warning-bg: #fffbeb;
-    --w-danger: #dc2626;
-    --w-danger-bg: #fef2f2;
-    --w-text: #1a1a2e;
-    --w-text-sec: #6b7280;
-    --w-text-muted: #9ca3af;
-    --w-border: #e5e7eb;
-    --w-border-light: #f0f0f5;
-    --w-surface: #ffffff;
-    --w-raised: #f9fafb;
-    --w-shadow-sm: 0 1px 2px rgba(0,0,0,0.04);
-    --w-shadow-md: 0 2px 8px rgba(0,0,0,0.06);
-    --w-r: 8px;
-    --w-r-lg: 12px;
+    --primary: #635bff;
+    --primary-light: #7a73ff;
+    --primary-bg: #f0efff;
+    --primary-dark: #4f46e5;
+    --success: #10b981;
+    --success-bg: #ecfdf5;
+    --warning: #f59e0b;
+    --warning-bg: #fffbeb;
+    --danger: #ef4444;
+    --danger-bg: #fef2f2;
+    --text: #111827;
+    --text-secondary: #6b7280;
+    --text-muted: #9ca3af;
+    --border: #e5e7eb;
+    --border-light: #f3f4f6;
+    --surface: #ffffff;
+    --bg: #f8fafc;
+    --raised: #f9fafb;
+    --shadow-xs: 0 1px 2px rgba(0,0,0,0.03);
+    --shadow-sm: 0 1px 3px rgba(0,0,0,0.05), 0 1px 2px rgba(0,0,0,0.03);
+    --shadow-md: 0 4px 6px -1px rgba(0,0,0,0.05), 0 2px 4px -2px rgba(0,0,0,0.03);
+    --shadow-lg: 0 10px 15px -3px rgba(0,0,0,0.05), 0 4px 6px -4px rgba(0,0,0,0.03);
+    --r: 8px;
+    --r-lg: 12px;
+    --r-xl: 16px;
+    --transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-/* Global */
-.stApp { background-color: #f9fafb !important; }
-.stApp > header { background-color: transparent !important; }
-h1,h2,h3,h4,h5,h6 { color: var(--w-text) !important; font-weight: 600 !important; letter-spacing: -0.02em; }
-h1 { font-size: 1.75rem !important; }
-h2 { font-size: 1.375rem !important; }
-h3 { font-size: 1.05rem !important; }
-.block-container { padding-top: 1.5rem !important; padding-bottom: 2rem !important; max-width: 1200px !important; }
+/* ===== Global ===== */
+.stApp {
+    background-color: var(--bg) !important;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+}
+.stApp > header { background: transparent !important; }
+* { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
 
-/* Sidebar */
-[data-testid="stSidebar"] { background-color: var(--w-surface) !important; border-right: 1px solid var(--w-border) !important; }
+h1, h2, h3, h4, h5, h6 {
+    color: var(--text) !important;
+    font-weight: 600 !important;
+    letter-spacing: -0.025em;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
+}
+h1 { font-size: 1.75rem !important; font-weight: 700 !important; }
+h2 { font-size: 1.25rem !important; }
+h3 { font-size: 1rem !important; }
+p, li, span, div { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important; }
+
+.block-container {
+    padding-top: 1.25rem !important;
+    padding-bottom: 2rem !important;
+    max-width: 1280px !important;
+}
+
+/* ===== Sidebar ===== */
+[data-testid="stSidebar"] {
+    background: var(--surface) !important;
+    border-right: 1px solid var(--border) !important;
+}
 [data-testid="stSidebar"] .stMarkdown h2,
-[data-testid="stSidebar"] .stMarkdown h3 { font-size: 0.8rem !important; text-transform: uppercase !important; letter-spacing: 0.05em !important; color: var(--w-text-sec) !important; }
-[data-testid="stSidebar"] hr { border-color: var(--w-border-light) !important; margin: 0.75rem 0 !important; }
+[data-testid="stSidebar"] .stMarkdown h3 {
+    font-size: 0.7rem !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.08em !important;
+    color: var(--text-muted) !important;
+    font-weight: 600 !important;
+}
+[data-testid="stSidebar"] hr { border-color: var(--border-light) !important; margin: 0.75rem 0 !important; }
 
-/* Metrics */
-[data-testid="stMetric"] { background-color: var(--w-surface) !important; border: 1px solid var(--w-border) !important; border-radius: var(--w-r) !important; padding: 1rem 1.25rem !important; box-shadow: var(--w-shadow-sm) !important; }
-[data-testid="stMetric"]:hover { box-shadow: var(--w-shadow-md) !important; }
-[data-testid="stMetricLabel"] { color: var(--w-text-sec) !important; font-size: 0.75rem !important; text-transform: uppercase !important; letter-spacing: 0.04em !important; font-weight: 500 !important; }
-[data-testid="stMetricValue"] { color: var(--w-text) !important; font-weight: 700 !important; font-size: 1.5rem !important; }
+/* ===== Metric Cards ===== */
+[data-testid="stMetric"] {
+    background: var(--surface) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: var(--r-lg) !important;
+    padding: 1rem 1.25rem !important;
+    box-shadow: var(--shadow-xs) !important;
+    transition: var(--transition);
+}
+[data-testid="stMetric"]:hover {
+    box-shadow: var(--shadow-md) !important;
+    border-color: var(--primary) !important;
+}
+[data-testid="stMetricLabel"] {
+    color: var(--text-secondary) !important;
+    font-size: 0.7rem !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.06em !important;
+    font-weight: 600 !important;
+}
+[data-testid="stMetricValue"] {
+    color: var(--text) !important;
+    font-weight: 700 !important;
+    font-size: 1.5rem !important;
+    letter-spacing: -0.02em;
+}
+[data-testid="stMetricDelta"] { font-size: 0.8rem !important; }
+[data-testid="stMetricDelta"] svg { width: 12px !important; height: 12px !important; }
 
-/* Tabs */
-.stTabs [data-baseweb="tab-list"] { background-color: var(--w-surface) !important; border-radius: var(--w-r-lg) !important; border: 1px solid var(--w-border) !important; padding: 4px !important; gap: 2px !important; box-shadow: var(--w-shadow-sm) !important; }
-.stTabs [data-baseweb="tab"] { border-radius: var(--w-r) !important; padding: 0.5rem 1rem !important; font-weight: 500 !important; font-size: 0.85rem !important; color: var(--w-text-sec) !important; background-color: transparent !important; border: none !important; }
-.stTabs [data-baseweb="tab"]:hover { background-color: var(--w-raised) !important; color: var(--w-text) !important; }
-.stTabs [aria-selected="true"] { background-color: var(--w-primary) !important; color: white !important; font-weight: 600 !important; box-shadow: var(--w-shadow-sm) !important; }
-.stTabs [data-baseweb="tab-highlight"], .stTabs [data-baseweb="tab-border"] { display: none !important; }
+/* ===== Tabs - Pill Navigation ===== */
+.stTabs [data-baseweb="tab-list"] {
+    background: var(--surface) !important;
+    border-radius: var(--r-xl) !important;
+    border: 1px solid var(--border) !important;
+    padding: 4px !important;
+    gap: 2px !important;
+    box-shadow: var(--shadow-sm) !important;
+}
+.stTabs [data-baseweb="tab"] {
+    border-radius: var(--r-lg) !important;
+    padding: 0.5rem 1.15rem !important;
+    font-weight: 500 !important;
+    font-size: 0.82rem !important;
+    color: var(--text-secondary) !important;
+    background: transparent !important;
+    border: none !important;
+    transition: var(--transition);
+    white-space: nowrap !important;
+}
+.stTabs [data-baseweb="tab"]:hover {
+    background: var(--bg) !important;
+    color: var(--text) !important;
+}
+.stTabs [aria-selected="true"] {
+    background: var(--primary) !important;
+    color: white !important;
+    font-weight: 600 !important;
+    box-shadow: 0 2px 4px rgba(99,91,255,0.25) !important;
+}
+.stTabs [data-baseweb="tab-highlight"],
+.stTabs [data-baseweb="tab-border"] { display: none !important; }
 
-/* Buttons */
-.stButton > button { border-radius: var(--w-r) !important; font-weight: 500 !important; font-size: 0.875rem !important; padding: 0.5rem 1.25rem !important; border: none !important; box-shadow: var(--w-shadow-sm) !important; transition: all 0.15s ease; }
-.stButton > button:hover { box-shadow: var(--w-shadow-md) !important; transform: translateY(-1px); }
+/* ===== Buttons ===== */
+.stButton > button {
+    border-radius: var(--r) !important;
+    font-weight: 500 !important;
+    font-size: 0.85rem !important;
+    padding: 0.55rem 1.25rem !important;
+    border: none !important;
+    box-shadow: var(--shadow-sm) !important;
+    transition: var(--transition);
+    letter-spacing: -0.01em;
+}
+.stButton > button:hover {
+    box-shadow: var(--shadow-md) !important;
+    transform: translateY(-1px);
+}
 .stButton > button:active { transform: translateY(0); }
-.stDownloadButton > button { background-color: var(--w-surface) !important; color: var(--w-text) !important; border: 1px solid var(--w-border) !important; border-radius: var(--w-r) !important; font-weight: 500 !important; }
-.stDownloadButton > button:hover { background-color: var(--w-raised) !important; border-color: var(--w-primary) !important; color: var(--w-primary) !important; }
-
-/* Expanders */
-[data-testid="stExpander"] { background-color: var(--w-surface) !important; border: 1px solid var(--w-border) !important; border-radius: var(--w-r) !important; box-shadow: var(--w-shadow-sm) !important; margin-bottom: 0.5rem !important; }
-[data-testid="stExpander"] summary { font-weight: 500 !important; color: var(--w-text) !important; }
-
-/* Alerts */
-.stAlert { border-radius: var(--w-r) !important; border-left-width: 3px !important; font-size: 0.875rem !important; }
-
-/* Inputs */
-.stTextInput > div > div > input, .stNumberInput > div > div > input, .stTextArea > div > div > textarea {
-    border: 1px solid var(--w-border) !important; border-radius: var(--w-r) !important;
-    background-color: var(--w-surface) !important; padding: 0.625rem 0.875rem !important; font-size: 0.875rem !important;
+.stButton > button[kind="primary"] {
+    background: linear-gradient(135deg, var(--primary), var(--primary-light)) !important;
+    color: white !important;
 }
-.stTextInput > div > div > input:focus, .stNumberInput > div > div > input:focus, .stTextArea > div > div > textarea:focus {
-    border-color: var(--w-primary) !important; box-shadow: 0 0 0 3px var(--w-primary-bg) !important;
+.stButton > button[kind="primary"]:hover {
+    background: linear-gradient(135deg, var(--primary-dark), var(--primary)) !important;
+    box-shadow: 0 4px 12px rgba(99,91,255,0.3) !important;
+}
+.stDownloadButton > button {
+    background: var(--surface) !important;
+    color: var(--text) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: var(--r) !important;
+    font-weight: 500 !important;
+    transition: var(--transition);
+}
+.stDownloadButton > button:hover {
+    background: var(--bg) !important;
+    border-color: var(--primary) !important;
+    color: var(--primary) !important;
 }
 
-/* Tables */
-[data-testid="stDataFrame"] { border: 1px solid var(--w-border) !important; border-radius: var(--w-r) !important; overflow: hidden !important; box-shadow: var(--w-shadow-sm) !important; }
+/* ===== Expanders ===== */
+[data-testid="stExpander"] {
+    background: var(--surface) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: var(--r-lg) !important;
+    box-shadow: var(--shadow-xs) !important;
+    margin-bottom: 0.5rem !important;
+    transition: var(--transition);
+}
+[data-testid="stExpander"]:hover {
+    box-shadow: var(--shadow-sm) !important;
+}
+[data-testid="stExpander"] summary {
+    font-weight: 500 !important;
+    color: var(--text) !important;
+    font-size: 0.9rem !important;
+}
 
-/* Dividers */
-.stMarkdown hr { border: none !important; border-top: 1px solid var(--w-border-light) !important; margin: 1.5rem 0 !important; }
+/* ===== Alerts ===== */
+.stAlert {
+    border-radius: var(--r-lg) !important;
+    border-left-width: 3px !important;
+    font-size: 0.85rem !important;
+}
 
-/* Progress */
-.stProgress > div > div > div { background-color: var(--w-primary) !important; border-radius: 999px !important; }
+/* ===== Inputs ===== */
+.stTextInput > div > div > input,
+.stNumberInput > div > div > input,
+.stTextArea > div > div > textarea {
+    border: 1px solid var(--border) !important;
+    border-radius: var(--r) !important;
+    background: var(--surface) !important;
+    padding: 0.6rem 0.875rem !important;
+    font-size: 0.875rem !important;
+    transition: var(--transition);
+}
+.stTextInput > div > div > input:focus,
+.stNumberInput > div > div > input:focus,
+.stTextArea > div > div > textarea:focus {
+    border-color: var(--primary) !important;
+    box-shadow: 0 0 0 3px var(--primary-bg) !important;
+}
+.stSelectbox > div > div { border-radius: var(--r) !important; }
 
-/* Forms */
-[data-testid="stForm"] { border: 1px solid var(--w-border) !important; border-radius: var(--w-r) !important; padding: 1rem !important; background: var(--w-surface) !important; }
+/* ===== Data Tables ===== */
+[data-testid="stDataFrame"] {
+    border: 1px solid var(--border) !important;
+    border-radius: var(--r-lg) !important;
+    overflow: hidden !important;
+    box-shadow: var(--shadow-sm) !important;
+}
 
-/* Score Badge */
-.score-badge { display: inline-flex; align-items: center; justify-content: center; width: 72px; height: 72px; border-radius: 50%; font-size: 1.5rem; font-weight: 700; color: white; box-shadow: var(--w-shadow-md); }
-.score-badge.excellent { background: #0ea371; }
-.score-badge.good { background: #3b82f6; }
-.score-badge.moderate { background: #d97706; }
-.score-badge.poor { background: #dc2626; }
+/* ===== Dividers ===== */
+.stMarkdown hr {
+    border: none !important;
+    border-top: 1px solid var(--border-light) !important;
+    margin: 1.25rem 0 !important;
+}
 
-/* Hide branding */
+/* ===== Progress Bars ===== */
+.stProgress > div > div > div {
+    background: linear-gradient(90deg, var(--primary), var(--primary-light)) !important;
+    border-radius: 999px !important;
+}
+
+/* ===== Forms ===== */
+[data-testid="stForm"] {
+    border: 1px solid var(--border) !important;
+    border-radius: var(--r-lg) !important;
+    padding: 1.25rem !important;
+    background: var(--surface) !important;
+    box-shadow: var(--shadow-xs) !important;
+}
+
+/* ===== Score Badge ===== */
+.score-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 72px; height: 72px;
+    border-radius: 50%;
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: white;
+    box-shadow: var(--shadow-md);
+}
+.score-badge.excellent { background: linear-gradient(135deg, #10b981, #059669); }
+.score-badge.good { background: linear-gradient(135deg, #3b82f6, #2563eb); }
+.score-badge.moderate { background: linear-gradient(135deg, #f59e0b, #d97706); }
+.score-badge.poor { background: linear-gradient(135deg, #ef4444, #dc2626); }
+
+/* ===== Columns ===== */
+[data-testid="column"] { padding: 0 0.375rem !important; }
+
+/* ===== Selectbox / Multiselect ===== */
+.stMultiSelect [data-baseweb="tag"] {
+    background: var(--primary-bg) !important;
+    color: var(--primary) !important;
+    border-radius: 6px !important;
+    font-weight: 500 !important;
+}
+
+/* ===== Smooth Scrolling ===== */
+html { scroll-behavior: smooth; }
+
+/* ===== Plotly Chart Containers ===== */
+.js-plotly-plot { border-radius: var(--r-lg) !important; }
+.js-plotly-plot .plotly .modebar { opacity: 0; transition: opacity 0.2s ease; }
+.js-plotly-plot:hover .plotly .modebar { opacity: 1; }
+
+/* ===== Toast / Notification ===== */
+[data-testid="stToast"] { border-radius: var(--r-lg) !important; box-shadow: var(--shadow-lg) !important; }
+
+/* ===== Hide Streamlit Branding ===== */
 #MainMenu { visibility: hidden; }
 footer { visibility: hidden; }
+[data-testid="stStatusWidget"] { visibility: hidden; }
 </style>
 """
 st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
@@ -137,30 +329,30 @@ st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 CHART_COLORS = ["#635bff", "#0ea371", "#3b82f6", "#d97706", "#ec4899",
                 "#8b5cf6", "#06b6d4", "#f43f5e", "#10b981", "#6366f1"]
 
-_wharton_template = dict(
+_chart_template = dict(
     layout=dict(
-        font=dict(family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
-                  color="#1a1a2e", size=13),
+        font=dict(family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+                  color="#111827", size=13),
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
-        title=dict(font=dict(size=16, color="#1a1a2e")),
-        xaxis=dict(gridcolor="#f0f0f5", linecolor="#e5e7eb",
+        title=dict(font=dict(size=15, color="#111827")),
+        xaxis=dict(gridcolor="#f3f4f6", linecolor="#e5e7eb",
                    tickfont=dict(color="#6b7280", size=11),
                    title_font=dict(color="#6b7280", size=12), zeroline=False),
-        yaxis=dict(gridcolor="#f0f0f5", linecolor="#e5e7eb",
+        yaxis=dict(gridcolor="#f3f4f6", linecolor="#e5e7eb",
                    tickfont=dict(color="#6b7280", size=11),
                    title_font=dict(color="#6b7280", size=12), zeroline=False),
         legend=dict(font=dict(color="#6b7280", size=12),
                     bgcolor="rgba(0,0,0,0)", bordercolor="rgba(0,0,0,0)"),
         margin=dict(l=40, r=20, t=40, b=40),
         hoverlabel=dict(bgcolor="white", bordercolor="#e5e7eb",
-                        font=dict(color="#1a1a2e", size=13)),
+                        font=dict(color="#111827", size=13)),
         colorway=CHART_COLORS,
     )
 )
-pio.templates["wharton_light"] = pio.templates["plotly_white"]
-pio.templates["wharton_light"].update(_wharton_template)
-pio.templates.default = "wharton_light"
+pio.templates["invest_light"] = pio.templates["plotly_white"]
+pio.templates["invest_light"].update(_chart_template)
+pio.templates.default = "invest_light"
 
 
 
@@ -203,7 +395,6 @@ if 'initialized' not in st.session_state:
     st.session_state.data_provider = None
     st.session_state.orchestrator = None
     st.session_state.config_loader = None
-    st.session_state.client_data = None
     st.session_state.qa_system = None
     st.session_state.sheets_integration = None
     st.session_state.sheets_enabled = False
@@ -211,121 +402,6 @@ if 'initialized' not in st.session_state:
     st.session_state.show_sheets_export = False
 
 
-def get_client_profile_weights(client_name: str) -> dict:
-    """Derive agent weights from detailed client profile characteristics and specific metrics."""
-    from utils.client_profile_manager import ClientProfileManager
-    
-    profile_manager = ClientProfileManager()
-    profile_data = profile_manager.load_client_profile(client_name)
-    
-    if not profile_data:
-        # Default equal weights if profile not found
-        return {
-            'value': 1.0,
-            'growth_momentum': 1.0,
-            'macro_regime': 1.0,
-            'risk': 1.0,
-            'sentiment': 1.0
-        }
-    
-    profile_text = profile_data.get('profile_text', '').lower()
-    ips_data = profile_data.get('ips_data', {})
-    weights = {'value': 1.0, 'growth_momentum': 1.0, 'macro_regime': 1.0, 'risk': 1.0, 'sentiment': 1.0}
-    
-    # SPECIFIC METRIC-BASED ANALYSIS
-    
-    # 1. Risk Tolerance Analysis (from exact risk_tolerance field)
-    risk_tolerance = ips_data.get('risk_tolerance', 'moderate')
-    if risk_tolerance == 'conservative' or 'conservative' in profile_text:
-        weights['value'] = 1.6      # Strong emphasis on value metrics
-        weights['risk'] = 1.9       # Very high risk assessment priority
-        weights['growth_momentum'] = 0.5  # De-emphasize momentum plays
-        weights['sentiment'] = 0.4  # Ignore market sentiment noise
-        weights['macro_regime'] = 1.3     # Monitor macro for safety
-    elif risk_tolerance == 'aggressive' or any(word in profile_text for word in ['aggressive', 'high-risk', 'growth']):
-        weights['growth_momentum'] = 1.9  # Prioritize growth opportunities
-        weights['sentiment'] = 1.6        # Use market sentiment for timing
-        weights['value'] = 0.6           # Lower focus on traditional value
-        weights['risk'] = 0.7           # Accept higher risk for returns
-        weights['macro_regime'] = 1.1   # Standard macro monitoring
-    
-    # 2. Time Horizon Analysis (from exact time_horizon_years)
-    time_horizon = ips_data.get('time_horizon_years', 5)
-    if time_horizon >= 10:  # Long-term (10+ years)
-        weights['value'] *= 1.3          # Value compounds over time
-        weights['growth_momentum'] *= 1.2 # Growth more important long-term
-        weights['sentiment'] *= 0.6      # Less relevant for long horizons
-        weights['macro_regime'] *= 0.9   # Macro cycles matter less long-term
-    elif time_horizon <= 3:  # Short-term (3 years or less)
-        weights['sentiment'] *= 1.4      # Market timing more critical
-        weights['macro_regime'] *= 1.4   # Economic cycles highly relevant
-        weights['risk'] *= 1.3          # Downside protection crucial
-        weights['growth_momentum'] *= 0.8 # Less time for growth to materialize
-    
-    # 3. Return Requirements Analysis (from required_growth_rate)
-    required_return = ips_data.get('required_growth_rate', 8.0)
-    if required_return >= 12.0:  # High return requirement (12%+)
-        weights['growth_momentum'] *= 1.5 # Need strong growth stocks
-        weights['sentiment'] *= 1.3      # Use sentiment for alpha generation
-        weights['value'] *= 0.8         # Value may not meet return needs
-        weights['risk'] *= 0.9         # Must accept higher risk
-    elif required_return <= 6.0:  # Conservative return target (6% or less)
-        weights['value'] *= 1.4         # Focus on undervalued, stable stocks
-        weights['risk'] *= 1.5         # Prioritize capital preservation
-        weights['growth_momentum'] *= 0.7 # Don't need high growth
-        weights['sentiment'] *= 0.7     # Less aggressive positioning
-    
-    # 4. Drawdown Requirements Analysis (from annual_drawdown)
-    has_drawdowns = ips_data.get('annual_drawdown', 0) > 0
-    if has_drawdowns:
-        weights['risk'] *= 1.4          # Liquidity and stability critical
-        weights['value'] *= 1.2        # Need reliable dividend/cash flow
-        weights['macro_regime'] *= 1.2  # Economic conditions affect liquidity
-        weights['growth_momentum'] *= 0.8 # Can't afford volatile growth stocks
-        weights['sentiment'] *= 0.8     # Less speculation allowed
-    
-    # 5. Mission/ESG Focus Analysis (from foundation_mission and focus_areas)
-    has_mission = bool(ips_data.get('foundation_mission') or ips_data.get('focus_areas'))
-    if has_mission:
-        weights['risk'] *= 1.2          # ESG screening may limit universe
-        weights['value'] *= 1.1        # Need sustainable business models
-        weights['macro_regime'] *= 1.1  # Policy/regulation impacts ESG stocks
-        weights['sentiment'] *= 0.9     # Less focus on pure market dynamics
-    
-    # 6. Capital Size Analysis (from initial_capital)
-    initial_capital = ips_data.get('initial_capital', 100000)
-    if initial_capital >= 1000000:  # Large portfolios ($1M+)
-        weights['macro_regime'] *= 1.2  # Macro factors more impactful
-        weights['risk'] *= 1.1         # Institutional-level risk management
-        weights['sentiment'] *= 0.9     # Less tactical, more strategic
-    elif initial_capital <= 100000:  # Smaller portfolios (<$100K)
-        weights['growth_momentum'] *= 1.2 # Need higher growth to build wealth
-        weights['sentiment'] *= 1.1      # More tactical opportunities
-        weights['value'] *= 0.9         # May not have luxury of patience
-    
-    # 7. Organization Type Analysis (from organization field)
-    org_type = ips_data.get('organization', '').lower()
-    if 'foundation' in org_type or 'nonprofit' in org_type:
-        weights['risk'] *= 1.3          # Fiduciary responsibility
-        weights['value'] *= 1.2        # Need sustainable returns
-        weights['growth_momentum'] *= 0.9 # Less aggressive growth seeking
-        weights['sentiment'] *= 0.7     # Avoid speculative positioning
-    
-    # 8. Professional Background Analysis (from background field)
-    background = ips_data.get('background', '').lower()
-    if any(word in background for word in ['finance', 'investment', 'business']):
-        weights['macro_regime'] *= 1.2  # Sophisticated macro understanding
-        weights['sentiment'] *= 1.1     # Can handle market timing
-    elif any(word in background for word in ['teacher', 'government', 'nonprofit']):
-        weights['risk'] *= 1.3          # Conservative, steady approach
-        weights['value'] *= 1.2        # Prefer understandable investments
-        weights['sentiment'] *= 0.8     # Less comfort with market speculation
-    
-    # Normalize weights and ensure they're reasonable
-    for key in weights:
-        weights[key] = max(0.3, min(2.5, weights[key]))  # Clamp between 0.3 and 2.5
-    
-    return weights
 
 
 def initialize_system():
@@ -419,15 +495,16 @@ def main():
 
     # Branded header
     st.markdown("""
-    <div style="display:flex;align-items:center;gap:12px;margin-bottom:4px;">
-        <div style="background:#635bff;color:white;font-weight:700;font-size:1.125rem;
-                    width:40px;height:40px;border-radius:10px;display:flex;
-                    align-items:center;justify-content:center;">W</div>
+    <div style="display:flex;align-items:center;gap:14px;margin-bottom:8px;">
+        <div style="background:linear-gradient(135deg,#635bff,#7a73ff);color:white;font-weight:700;font-size:1rem;
+                    width:38px;height:38px;border-radius:10px;display:flex;
+                    align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(99,91,255,0.25);
+                    letter-spacing:-0.02em;">IA</div>
         <div>
-            <div style="font-size:1.25rem;font-weight:700;color:#1a1a2e;letter-spacing:-0.02em;">
-                Wharton Investment Analysis</div>
-            <div style="font-size:0.8rem;color:#6b7280;">
-                Multi-Agent Investment Research Platform</div>
+            <div style="font-size:1.2rem;font-weight:700;color:#111827;letter-spacing:-0.03em;line-height:1.2;">
+                Investment Analysis</div>
+            <div style="font-size:0.75rem;color:#9ca3af;font-weight:400;letter-spacing:0.01em;">
+                Multi-Agent Research Platform</div>
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -547,7 +624,7 @@ def main():
             **Benefits:**
             - Auto-sync all analyses to Google Sheets
             - Track portfolio history over time
-            - Share results with clients/team
+            - Share results with your team
             - Advanced filtering and charting
             
             **Without it:**
@@ -639,11 +716,10 @@ def stock_analysis_page():
     with col1:
         weight_preset = st.selectbox(
             "Choose Weight Configuration:",
-            options=["equal_weights", "custom_weights", "client_profile_weights"],
+            options=["equal_weights", "custom_weights"],
             format_func=lambda x: {
                 "equal_weights": "1. Equal Weights",
-                "custom_weights": "2. Custom Weights", 
-                "client_profile_weights": "3. Client Profile Weights"
+                "custom_weights": "2. Custom Weights"
             }[x],
             help="Select how agent weights should be configured for this analysis"
         )
@@ -784,28 +860,7 @@ def stock_analysis_page():
                     with cols[i]:
                         pct = (weight / total_weight) * 100
                         st.metric(agent_labels_dict.get(agent, agent), f"{weight:.1f}x", delta=f"{pct:.1f}%")
-    
-    elif weight_preset == "client_profile_weights":
-        with col2:
-            # Load available client profiles
-            from utils.client_profile_manager import ClientProfileManager
-            profile_manager = ClientProfileManager()
-            available_profiles = profile_manager.list_client_profiles()
-            
-            if available_profiles:
-                profile_names = [p['client_name'] for p in available_profiles]
-                selected_profile = st.selectbox(
-                    "Select Client Profile:",
-                    options=profile_names,
-                    help="Choose a client profile to derive agent weights"
-                )
-                
-                if st.button("Apply Profile Weights"):
-                    agent_weights = get_client_profile_weights(selected_profile)
-                    st.success(f"Applied weights based on {selected_profile} profile!")
-            else:
-                st.warning("No client profiles found. Please create a client profile in System Configuration first.")
-    
+
     else:  # equal_weights
         with col2:
             if st.button("Apply Equal Weights"):
@@ -1036,10 +1091,8 @@ def stock_analysis_page():
                                 agent_rationales = result.get('agent_rationales', {})
                                 current_date = datetime.now().strftime('%Y-%m-%d')
                                 final_rationale = f"Investment analysis for {result['ticker']} completed on {current_date}"
-                                if 'client_layer_agent' in agent_rationales:
-                                    final_rationale = agent_rationales['client_layer_agent'][:500] + "..." if len(agent_rationales.get('client_layer_agent', '')) > 500 else agent_rationales.get('client_layer_agent', final_rationale)
-                                
-                                # Log complete analysis automatically for multi-stock batch
+
+                # Log complete analysis automatically for multi-stock batch
                                 analysis_id = qa_system.log_complete_analysis(
                                     ticker=result['ticker'],
                                     price=result['fundamentals'].get('price', 0),
@@ -1129,9 +1182,7 @@ def display_stock_analysis(result: dict):
                 agent_rationales = result.get('agent_rationales', {})
                 current_date = datetime.now().strftime('%Y-%m-%d')
                 final_rationale = f"Investment analysis for {ticker} completed on {current_date}"
-                if 'client_layer_agent' in agent_rationales:
-                    final_rationale = agent_rationales['client_layer_agent'][:500] + "..." if len(agent_rationales.get('client_layer_agent', '')) > 500 else agent_rationales.get('client_layer_agent', final_rationale)
-                
+
                 # Log complete analysis
                 analysis_id = qa_system.log_complete_analysis(
                     ticker=ticker,
@@ -1175,10 +1226,10 @@ def display_stock_analysis(result: dict):
         # Eligibility badge
         if result['eligible']:
             st.success("ELIGIBLE")
-            st.caption("This stock meets all client investment criteria")
+            st.caption("This stock meets all investment policy criteria")
         else:
             st.error("NOT ELIGIBLE")
-            st.caption("This stock violates one or more client criteria")
+            st.caption("This stock does not meet IPS criteria")
     
     # Show which weights were used for this analysis
     weight_preset = st.session_state.get('weight_preset', 'equal_weights')
@@ -1229,10 +1280,8 @@ def display_stock_analysis(result: dict):
                 
                 st.caption("Higher weights mean that agent's score had MORE influence on the final score.")
     
-    elif weight_preset == 'client_profile_weights':
-        st.info("This analysis used weights derived from the selected client profile.")
-    
-    # 🆕 IMPROVEMENT #7: Side-by-Side Comparison with Previous Analysis
+
+    # Side-by-Side Comparison with Previous Analysis
     ticker = result['ticker']
     qa_system = st.session_state.get('qa_system')
     
@@ -1635,7 +1684,7 @@ Formula: Blended Score = Weighted Sum / Total Weight
         st.write("**Overall Assessment:**")
         
         if not eligible:
-            st.error(f"**NOT RECOMMENDED** - While the analysis score is {final_score:.1f}, this investment does not meet client suitability criteria.")
+            st.error(f"**NOT RECOMMENDED** - While the analysis score is {final_score:.1f}, this investment does not meet investment policy criteria.")
         elif final_score >= 80:
             st.success(f"**STRONG BUY** - Excellent score of {final_score:.1f} with compelling fundamentals and strong multi-factor support.")
         elif final_score >= 70:
@@ -1645,19 +1694,16 @@ Formula: Blended Score = Weighted Sum / Total Weight
         elif final_score >= 40:
             st.warning(f"**WEAK HOLD** - Below-average score of {final_score:.1f}. Consider for portfolio review or reduction.")
         else:
-            st.error(f"**SELL** - Low score of {final_score:.1f} with significant concerns. Not recommended for client portfolio.")
+            st.error(f"**SELL** - Low score of {final_score:.1f} with significant concerns. Consider alternatives.")
     
-    # Client validation summary
+    # IPS eligibility summary
     st.markdown("---")
-    st.markdown("### ✅ Client Suitability")
+    st.markdown("### IPS Eligibility")
     if result['eligible']:
-        st.success("**Approved** - Meets all suitability requirements")
+        st.success("**Eligible** - Meets investment policy constraints")
     else:
-        st.error("**Not Suitable** - Does not meet requirements")
-        if result['client_layer'].get('violations'):
-            for violation in result['client_layer']['violations']:
-                st.write(f"• {violation}")
-    
+        st.warning("**Not Eligible** - Does not meet IPS constraints")
+
     # Export functionality
     with st.expander("Export Analysis", expanded=False):
         agent_scores = result['agent_scores']
@@ -1723,7 +1769,7 @@ Formula: Blended Score = Weighted Sum / Total Weight
                     agent_name = agent.replace('_', ' ').title()
                     report += f"### {agent_name}\n{rationale}\n\n"
             
-            report += f"\n---\n*Wharton Investment Analysis System*\n"
+            report += f"\n---\n*Investment Analysis Platform*\n"
             
             st.download_button(
                 label="� Download Full Report",
@@ -1946,7 +1992,6 @@ def display_multiple_stock_analysis(results: list, failed_tickers: list):
             'Macro Score': result.get('agent_scores', {}).get('macro_regime_agent', 0),
             'Risk Score': result.get('agent_scores', {}).get('risk_agent', 0),
             'Sentiment Score': result.get('agent_scores', {}).get('sentiment_agent', 0),
-            'Client Score': result.get('agent_scores', {}).get('client_layer_agent', 0),
         }
         comparison_data.append(row)
     
@@ -1966,7 +2011,6 @@ def display_multiple_stock_analysis(results: list, failed_tickers: list):
     df['Macro Score'] = df['Macro Score'].round(1)
     df['Risk Score'] = df['Risk Score'].round(1)
     df['Sentiment Score'] = df['Sentiment Score'].round(1)
-    df['Client Score'] = df['Client Score'].round(1)
     
     # Display table
     st.dataframe(df, use_container_width=True, hide_index=True)
@@ -2308,13 +2352,9 @@ def display_enhanced_agent_rationales(result: dict):
     
     agent_scores = result['agent_scores']
     agent_rationales = result['agent_rationales']
-    
-    # Exclude client layer agent from individual rationales - it has its own section at bottom
-    filtered_scores = {k: v for k, v in agent_scores.items() if k != 'client_layer_agent'}
-    filtered_rationales = {k: v for k, v in agent_rationales.items() if k != 'client_layer_agent'}
-    
-    # Create agent names from filtered keys
-    agent_names = [key.replace('_', ' ').title() for key in filtered_scores.keys()]
+
+    # Create agent names from keys
+    agent_names = [key.replace('_', ' ').title() for key in agent_scores.keys()]
     
     # Agent collaboration results
     collaboration_results = get_agent_collaboration(result)
@@ -2322,15 +2362,15 @@ def display_enhanced_agent_rationales(result: dict):
     # Display agent scores chart
     st.write("**� Agent Score Overview**")
     
-    # Create bar chart with gradient colors (excluding client layer agent)
+    # Create bar chart with gradient colors 
     fig = go.Figure()
-    gradient_colors = [get_gradient_color(score) for score in filtered_scores.values()]
+    gradient_colors = [get_gradient_color(score) for score in agent_scores.values()]
     
     fig.add_trace(go.Bar(
         x=agent_names,
-        y=list(filtered_scores.values()),
+        y=list(agent_scores.values()),
         marker_color=gradient_colors,
-        text=[f"{s:.1f}" for s in filtered_scores.values()],
+        text=[f"{s:.1f}" for s in agent_scores.values()],
         textposition='auto',
         name='Scores'
     ))
@@ -2350,10 +2390,10 @@ def display_enhanced_agent_rationales(result: dict):
     st.write("---")
     st.write("**🧠 Individual Agent Analysis**")
     
-    # Create detailed rationale display for each agent (excluding client layer agent)
-    for i, (agent_key, agent_name) in enumerate(zip(filtered_scores.keys(), agent_names)):
-        score = filtered_scores[agent_key]
-        rationale = filtered_rationales.get(agent_key, "Analysis not available")
+    # Create detailed rationale display for each agent 
+    for i, (agent_key, agent_name) in enumerate(zip(agent_scores.keys(), agent_names)):
+        score = agent_scores[agent_key]
+        rationale = agent_rationales.get(agent_key, "Analysis not available")
         
         # Create expandable section for each agent
         with st.expander(f"**{agent_name}** - Score: {score:.1f}/100", expanded=False):
@@ -2415,832 +2455,21 @@ def display_enhanced_agent_rationales(result: dict):
                     for key, value in agent_context.items():
                         if value is not None:
                             st.write(f"• **{key}**: {value}")
-    
-    # Client Fit Analysis (single section at the bottom)
-    st.write("---")
-    with st.expander("Client Fit Analysis", expanded=False):
-        # Get ticker from result data
-        ticker = result.get('ticker', result.get('symbol', 'UNKNOWN'))
-        client_fit = analyze_client_fit(ticker, result)
-        
-        # Overall fit indicator
-        fit_score = client_fit['fit_score']
-        overall_fit = client_fit['overall_fit']
-        
-        col1, col2 = st.columns([1, 2])
-        
-        with col1:
-            if overall_fit == 'excellent':
-                st.success(f"**Excellent Fit**\n\n{fit_score:.0f}/100")
-            elif overall_fit == 'good':
-                st.success(f"**Good Fit**\n\n{fit_score:.0f}/100")
-            elif overall_fit == 'moderate':
-                st.warning(f"**Partial Fit**\n\n{fit_score:.0f}/100")
-            elif overall_fit == 'poor':
-                st.error(f"**Poor Fit**\n\n{fit_score:.0f}/100")
-            else:
-                st.error(f"**Incompatible**\n\n{fit_score:.0f}/100")
-        
-        with col2:
-            st.write("**Suitability Assessment:**")
-            
-            if overall_fit == 'excellent':
-                st.write("This investment aligns exceptionally well with the client's profile, restrictions, and risk tolerance.")
-            elif overall_fit == 'good':
-                st.write("This investment fits well within the client's parameters with only minor considerations.")
-            elif overall_fit == 'moderate': 
-                st.write("**Mixed suitability** - has both positive attributes and concerning aspects that require careful evaluation.")
-            elif overall_fit == 'poor':
-                st.write("This investment has **significant conflicts** with the client's investment criteria and risk profile.")
-            else:
-                st.write("This investment is **fundamentally incompatible** with the client's investment guidelines and should be avoided.")
-        
-        # Comprehensive IPS Compliance Analysis
-        st.write("**📋 Comprehensive IPS Compliance Analysis:**")
-        try:
-            analysis = generate_comprehensive_ips_compliance_analysis(ticker, result, client_fit, st.session_state.client_data)
-            
-            # Score Breakdown Section
-            st.write("**📊 Fit Score Breakdown:**")
-            score_breakdown = analysis.get('fit_score_breakdown', {})
-            base_score = score_breakdown.get('base_score', 50)
-            adjustments = score_breakdown.get('adjustments', [])
-            final_score = score_breakdown.get('final_calculated_score', client_fit.get('fit_score', 50))
-            
-            col1, col2 = st.columns(2)
-            with col1:
-                st.metric("Base Score", f"{base_score}/100")
-            with col2:
-                total_adj = sum(adj[1] for adj in adjustments)
-                st.metric("Total Adjustments", f"{total_adj:+.0f} points", delta=total_adj)
-            
-            # Show individual adjustments
-            if adjustments:
-                st.write("**Adjustment Details:**")
-                for factor, impact in adjustments:
-                    if impact > 0:
-                        st.success(f"{factor}: +{impact} points")
-                    else:
-                        st.error(f"{factor}: {impact} points")
-            
-            # IPS Compliance Details
-            ips_compliance = analysis.get('ips_compliance_detailed', {})
-            
-            # Fully Compliant Items
-            fully_compliant = ips_compliance.get('fully_compliant', [])
-            if fully_compliant:
-                st.write("**✅ Fully IPS Compliant:**")
-                for item in fully_compliant:
-                    st.success(f"**{item['constraint']}**: {item['compliance']}")
-                    if 'benefit' in item:
-                        st.write(f"   💡 {item['benefit']}")
-            
-            # Partially Compliant Items
-            partially_compliant = ips_compliance.get('partially_compliant', [])
-            if partially_compliant:
-                st.write("**⚖️ Partially Compliant (With Conditions):**")
-                for item in partially_compliant:
-                    st.warning(f"**{item['constraint']}**: {item['status']}")
-                    if 'conditions' in item:
-                        st.write(f"   📋 Conditions: {item['conditions']}")
-            
-            # Requires Attention Items
-            requires_attention = ips_compliance.get('requires_attention', [])
-            if requires_attention:
-                st.write("**⚠️ Requires Attention:**")
-                for item in requires_attention:
-                    st.warning(f"**{item['constraint']}**: {item['concern']}")
-                    if 'mitigation' in item:
-                        st.write(f"   🔧 Mitigation: {item['mitigation']}")
-            
-            # Non-Compliant Items (Major Issues)
-            non_compliant = ips_compliance.get('non_compliant', [])
-            if non_compliant:
-                st.write("**❌ IPS Violations (Non-Compliant):**")
-                for item in non_compliant:
-                    st.error(f"**{item['constraint']}**: {item['violation']}")
-                    st.write(f"   🚨 Impact: {item['impact']}")
-            
-            # Investment Constraints Analysis
-            constraints = analysis.get('investment_constraints_analysis', {})
-            if constraints:
-                st.write("**📏 Investment Constraints:**")
-                for constraint_type, details in constraints.items():
-                    if isinstance(details, dict):
-                        st.write(f"**{constraint_type.replace('_', ' ').title()}:**")
-                        for key, value in details.items():
-                            st.write(f"   • {key.replace('_', ' ').title()}: {value}")
-            
-            # Score Explanation
-            score_explanation = analysis.get('score_explanation', {})
-            if score_explanation:
-                st.write("**🔍 Score Explanation:**")
-                
-                if 'why_this_score' in score_explanation:
-                    st.info(score_explanation['why_this_score'])
-                
-                if 'why_not_higher' in score_explanation:
-                    st.write("**Why the score isn't higher:**")
-                    for reason in score_explanation['why_not_higher']:
-                        st.write(f"   • {reason}")
-                
-                if 'why_not_lower' in score_explanation:
-                    st.write("**Why the score isn't lower:**")
-                    for reason in score_explanation['why_not_lower']:
-                        st.write(f"   • {reason}")
-                
-                if 'key_factors' in score_explanation:
-                    st.write("**Key factors affecting the score:**")
-                    for factor in score_explanation['key_factors']:
-                        st.write(f"   • {factor}")
-            
-            # Final Recommendation
-            recommendation = analysis.get('recommendation_rationale', 'Assessment incomplete')
-            st.write("**🎯 Final Investment Recommendation:**")
-            
-            if 'NOT SUITABLE' in recommendation:
-                st.error(f"{recommendation}")
-            elif 'PROCEED WITH CAUTION' in recommendation:
-                st.warning(f"{recommendation}")
-            elif 'SUITABLE' in recommendation:
-                st.success(f"{recommendation}")
-            elif 'CONDITIONALLY SUITABLE' in recommendation:
-                st.warning(f"{recommendation}")
-            else:
-                st.error(f"{recommendation}")
-                
-        except Exception as e:
-            st.error(f"Error generating comprehensive IPS analysis: {str(e)}")
-            st.write("**Debug Info:**")
-            st.write(f"Client data available: {st.session_state.client_data is not None}")
-            st.write(f"Client fit data: {client_fit}")
-            import traceback
-            st.code(traceback.format_exc())
 
 
-def analyze_client_fit(ticker: str, result: dict, client_data: dict | None = None) -> dict:
-    """
-    Analyze how well a stock fits the client's investment restrictions and preferences using
-    advanced LLM analysis with complete client profile and all agent scores and rationales.
-    """
-    
-    if not client_data:
-        # Try to get client data from session state or default profile
-        if 'selected_profile' in st.session_state:
-            try:
-                from utils.client_profile_manager import ClientProfileManager
-                profile_manager = ClientProfileManager()
-                client_data = profile_manager.load_client_profile(st.session_state['selected_profile'])
-            except:
-                client_data = {}
-        else:
-            client_data = {}
-    
-    # If still no client data, create default
-    if not client_data:
-        client_data = {
-            'risk_tolerance': 'moderate',
-            'investment_style': 'balanced',
-            'time_horizon': 'medium',
-            'restricted_sectors': [],
-            'max_position_pct': 5,
-            'return_expectation': 'moderate'
-        }
-    
-    # Extract comprehensive analysis data
-    agent_scores = result.get('agent_scores', {})
-    agent_rationales = result.get('agent_rationales', {})
-    fundamentals = result.get('fundamentals', {})
-    final_score = result.get('final_score', 50)
-    
-    # Generate comprehensive client fit analysis using OpenAI
-    try:
-        openai_client = st.session_state.get('openai_client')
-        if openai_client:
-            return _generate_llm_client_fit_analysis(
-                ticker, client_data, agent_scores, agent_rationales, 
-                fundamentals, final_score, openai_client
-            )
-    except Exception as e:
-        print(f"Warning: LLM client fit analysis failed: {e}")
-    
-    # Fallback to rule-based analysis if LLM fails
-    return _generate_fallback_client_fit_analysis(
-        ticker, client_data, agent_scores, fundamentals, final_score
-    )
-
-
-def _generate_llm_client_fit_analysis(
-    ticker: str, 
-    client_data: dict, 
-    agent_scores: dict, 
-    agent_rationales: dict,
-    fundamentals: dict,
-    final_score: float,
-    openai_client
-) -> dict:
-    """Generate comprehensive client fit analysis using OpenAI with complete context."""
-    
-    # Prepare comprehensive prompt with all available data
-    client_profile_text = _format_client_profile_for_llm(client_data)
-    agent_analysis_text = _format_agent_analysis_for_llm(agent_scores, agent_rationales)
-    stock_fundamentals_text = _format_stock_fundamentals_for_llm(ticker, fundamentals, final_score)
-    
-    prompt = f"""You are an expert investment advisor conducting a comprehensive client suitability analysis.
-
-TASK: Analyze how well the stock {ticker} fits this specific client's investment profile, constraints, and objectives.
-
-CLIENT PROFILE:
-{client_profile_text}
-
-COMPREHENSIVE STOCK ANALYSIS:
-{stock_fundamentals_text}
-
-DETAILED AGENT ANALYSIS:
-{agent_analysis_text}
-
-ANALYSIS REQUIREMENTS:
-1. Provide a numerical fit score (0-100) based on comprehensive suitability analysis
-2. Identify specific positive factors that align with client requirements
-3. Identify specific negative factors that conflict with client constraints
-4. Provide neutral factors that are neither strongly positive nor negative
-5. Give an overall fit assessment (excellent/good/moderate/poor/incompatible)
-6. Include specific IPS compliance considerations
-7. Address risk tolerance alignment, investment style match, sector restrictions, position sizing
-8. Consider time horizon compatibility and return expectations
-
-OUTPUT FORMAT (JSON):
-{{
-    "fit_score": <0-100 numerical score>,
-    "overall_fit": "<excellent|good|moderate|poor|incompatible>",
-    "positive_factors": [
-        "Specific positive alignment factor 1",
-        "Specific positive alignment factor 2"
-    ],
-    "negative_factors": [
-        "Specific concern or constraint violation 1", 
-        "Specific concern or constraint violation 2"
-    ],
-    "neutral_factors": [
-        "Neutral factor 1",
-        "Neutral factor 2"
-    ],
-    "ips_compliance": {{
-        "fully_compliant": ["Compliant area 1", "Compliant area 2"],
-        "requires_attention": ["Area needing attention 1"],
-        "violations": ["Violation 1 if any"]
-    }},
-    "recommendation": "Detailed investment recommendation with specific position sizing and monitoring requirements",
-    "key_risks": ["Primary risk 1", "Primary risk 2"],
-    "monitoring_requirements": ["Monitor factor 1", "Monitor factor 2"]
-}}
-
-Ensure your analysis is thorough, specific, and directly addresses the client's unique profile and constraints."""
-
-    try:
-        response = openai_client.chat.completions.create(
-            model="gpt-4",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.1,
-            max_tokens=2000
-        )
-        
-        import json
-        analysis_text = response.choices[0].message.content
-        
-        # Extract JSON from response
-        if '```json' in analysis_text:
-            json_start = analysis_text.find('```json') + 7
-            json_end = analysis_text.find('```', json_start)
-            analysis_text = analysis_text[json_start:json_end]
-        elif '{' in analysis_text:
-            json_start = analysis_text.find('{')
-            json_end = analysis_text.rfind('}') + 1
-            analysis_text = analysis_text[json_start:json_end]
-        
-        analysis = json.loads(analysis_text)
-        
-        # Validate and normalize the response
-        return _validate_and_normalize_llm_response(analysis, ticker)
-        
-    except Exception as e:
-        print(f"Error: LLM client fit analysis failed: {e}")
-        raise
-
-
-def _format_client_profile_for_llm(client_data: dict) -> str:
-    """Format client profile data for LLM analysis."""
-    profile_text = []
-    
-    if client_data.get('name'):
-        profile_text.append(f"Client: {client_data['name']}")
-    
-    profile_text.append(f"Risk Tolerance: {client_data.get('risk_tolerance', 'moderate').title()}")
-    profile_text.append(f"Investment Style: {client_data.get('investment_style', 'balanced').title()}")
-    profile_text.append(f"Time Horizon: {client_data.get('time_horizon', 'medium').title()}")
-    profile_text.append(f"Return Expectation: {client_data.get('return_expectation', 'moderate').title()}")
-    
-    if client_data.get('restricted_sectors'):
-        sectors = client_data['restricted_sectors']
-        if isinstance(sectors, str):
-            sectors = [s.strip() for s in sectors.split(',')]
-        profile_text.append(f"Restricted Sectors: {', '.join(sectors)}")
-    
-    profile_text.append(f"Maximum Position Size: {client_data.get('max_position_pct', 5)}%")
-    
-    if client_data.get('market_cap_preference'):
-        profile_text.append(f"Market Cap Preference: {client_data['market_cap_preference']}")
-    
-    if client_data.get('esg_preference'):
-        profile_text.append(f"ESG Preference: {client_data['esg_preference']}")
-    
-    if client_data.get('income_requirement'):
-        profile_text.append(f"Income Requirement: {client_data['income_requirement']}")
-    
-    if client_data.get('liquidity_needs'):
-        profile_text.append(f"Liquidity Needs: {client_data['liquidity_needs']}")
-    
-    return '\n'.join(profile_text)
-
-
-def _format_agent_analysis_for_llm(agent_scores: dict, agent_rationales: dict) -> str:
-    """Format agent analysis data for LLM."""
-    analysis_text = []
-    
-    agent_names = {
-        'value_agent': 'Value Analysis',
-        'growth_momentum_agent': 'Growth & Momentum Analysis', 
-        'macro_regime_agent': 'Macro Economic Analysis',
-        'risk_agent': 'Risk Analysis',
-        'sentiment_agent': 'Market Sentiment Analysis'
-    }
-    
-    for agent_key, display_name in agent_names.items():
-        score = agent_scores.get(agent_key, 50)
-        rationale = agent_rationales.get(agent_key, "Analysis not available")
-        
-        analysis_text.append(f"\n{display_name}: {score:.1f}/100")
-        analysis_text.append(f"Rationale: {rationale}")
-    
-    return '\n'.join(analysis_text)
-
-
-def _format_stock_fundamentals_for_llm(ticker: str, fundamentals: dict, final_score: float) -> str:
-    """Format stock fundamentals for LLM analysis."""
-    fund_text = [f"Stock: {ticker}"]
-    fund_text.append(f"Overall Analysis Score: {final_score:.1f}/100")
-    
-    if fundamentals.get('name'):
-        fund_text.append(f"Company: {fundamentals['name']}")
-    
-    if fundamentals.get('sector'):
-        fund_text.append(f"Sector: {fundamentals['sector']}")
-    
-    if fundamentals.get('price'):
-        fund_text.append(f"Current Price: ${fundamentals['price']:.2f}")
-    
-    if fundamentals.get('market_cap'):
-        mc = fundamentals['market_cap']
-        if mc > 1_000_000_000:
-            fund_text.append(f"Market Cap: ${mc/1_000_000_000:.1f}B")
-        else:
-            fund_text.append(f"Market Cap: ${mc/1_000_000:.0f}M")
-    
-    if fundamentals.get('pe_ratio'):
-        fund_text.append(f"P/E Ratio: {fundamentals['pe_ratio']:.1f}")
-    
-    if fundamentals.get('beta'):
-        fund_text.append(f"Beta: {fundamentals['beta']:.2f}")
-    
-    if fundamentals.get('dividend_yield'):
-        fund_text.append(f"Dividend Yield: {fundamentals['dividend_yield']*100:.2f}%")
-    
-    if fundamentals.get('week_52_low') and fundamentals.get('week_52_high'):
-        fund_text.append(f"52-Week Range: ${fundamentals['week_52_low']:.2f} - ${fundamentals['week_52_high']:.2f}")
-    
-    return '\n'.join(fund_text)
-
-
-def _validate_and_normalize_llm_response(analysis: dict, ticker: str) -> dict:
-    """Validate and normalize LLM response to ensure consistency."""
-    
-    # Ensure required keys exist
-    normalized = {
-        'fit_score': max(0, min(100, analysis.get('fit_score', 50))),
-        'overall_fit': analysis.get('overall_fit', 'moderate'),
-        'positive_factors': analysis.get('positive_factors', []),
-        'negative_factors': analysis.get('negative_factors', []),
-        'neutral_factors': analysis.get('neutral_factors', []),
-        'ips_compliance': analysis.get('ips_compliance', {}),
-        'recommendation': analysis.get('recommendation', f"Analysis completed for {ticker}"),
-        'key_risks': analysis.get('key_risks', []),
-        'monitoring_requirements': analysis.get('monitoring_requirements', [])
-    }
-    
-    # Validate overall_fit values
-    valid_fits = ['excellent', 'good', 'moderate', 'poor', 'incompatible']
-    if normalized['overall_fit'] not in valid_fits:
-        normalized['overall_fit'] = 'moderate'
-    
-    # Ensure IPS compliance structure
-    normalized['ips_compliance'] = {
-        'fully_compliant': normalized['ips_compliance'].get('fully_compliant', []),
-        'requires_attention': normalized['ips_compliance'].get('requires_attention', []),
-        'violations': normalized['ips_compliance'].get('violations', [])
-    }
-    
-    return normalized
-
-
-def _generate_fallback_client_fit_analysis(
-    ticker: str, 
-    client_data: dict, 
-    agent_scores: dict, 
-    fundamentals: dict,
-    final_score: float
-) -> dict:
-    """Fallback rule-based analysis if LLM fails."""
-    
-    # Basic rule-based analysis
-    risk_score = agent_scores.get('risk_agent', 50) or 50
-    value_score = agent_scores.get('value_agent', 50) or 50
-    growth_score = agent_scores.get('growth_momentum_agent', 50) or 50
-    
-    # Get stock data for sector/industry analysis
-    sector = fundamentals.get('sector', 'Unknown')
-    market_cap = fundamentals.get('market_cap') or 0
-    
-    fit_score = 50  # Start at neutral
-    positive_factors = []
-    negative_factors = []
-    neutral_factors = []
-    
-    # Risk tolerance analysis
-    risk_tolerance = client_data.get('risk_tolerance', 'moderate').lower()
-    if risk_tolerance == 'low' and risk_score > 70:
-        negative_factors.append(f"High risk score ({risk_score:.1f}) conflicts with conservative risk tolerance")
-        fit_score -= 15
-    elif risk_tolerance == 'high' and risk_score < 40:
-        negative_factors.append(f"Low risk score ({risk_score:.1f}) may not meet aggressive growth expectations")
-        fit_score -= 10
-    elif risk_tolerance == 'moderate' and 40 <= risk_score <= 70:
-        positive_factors.append(f"Risk profile ({risk_score:.1f}) aligns with moderate risk tolerance")
-        fit_score += 10
-    
-    # Investment style analysis
-    investment_style = client_data.get('investment_style', 'balanced').lower()
-    if investment_style == 'value' and value_score > 65:
-        positive_factors.append(f"Strong value characteristics ({value_score:.1f}) match value investment style")
-        fit_score += 15
-    elif investment_style == 'growth' and growth_score > 65:
-        positive_factors.append(f"Strong growth potential ({growth_score:.1f}) aligns with growth investment style")
-        fit_score += 15
-    elif investment_style == 'balanced':
-        avg_score = (value_score + growth_score) / 2
-        if avg_score > 55:
-            positive_factors.append(f"Balanced value/growth profile ({avg_score:.1f}) suits balanced approach")
-            fit_score += 10
-    
-    # Sector restrictions
-    restricted_sectors = client_data.get('restricted_sectors', [])
-    if restricted_sectors and isinstance(restricted_sectors, str):
-        restricted_sectors = [s.strip().lower() for s in restricted_sectors.split(',')]
-    elif isinstance(restricted_sectors, list):
-        restricted_sectors = [s.lower() for s in restricted_sectors]
-    
-    if restricted_sectors and sector.lower() in restricted_sectors:
-        negative_factors.append(f"Stock is in restricted sector: {sector}")
-        fit_score -= 30
-    
-    # Overall score considerations
-    if final_score > 70:
-        positive_factors.append(f"Strong overall analysis score ({final_score:.1f})")
-        fit_score += 10
-    elif final_score < 40:
-        negative_factors.append(f"Weak overall analysis score ({final_score:.1f})")
-        fit_score -= 15
-    
-    # Determine overall fit
-    fit_score = max(0, min(100, fit_score))
-    
-    if fit_score >= 75:
-        overall_fit = 'high'
-    elif fit_score >= 60:
-        overall_fit = 'good'  
-    elif fit_score >= 40:
-        overall_fit = 'moderate'
-    elif fit_score >= 25:
-        overall_fit = 'poor'
-    else:
-        overall_fit = 'incompatible'
-    
-    # Add some neutral factors if we don't have many
-    if len(positive_factors) + len(negative_factors) < 3:
-        neutral_factors.append(f"Market cap: ${market_cap/1_000_000:.0f}M")
-        neutral_factors.append(f"Sector: {sector}")
-    
-    fit_analysis = {
-        'fit_score': fit_score,
-        'overall_fit': overall_fit,
-        'positive_factors': positive_factors,
-        'negative_factors': negative_factors,
-        'neutral_factors': neutral_factors,
-        'ips_compliance': {
-            'fully_compliant': ["Basic suitability assessment completed"],
-            'requires_attention': [],
-            'violations': []
-        },
-        'recommendation': f"Fallback analysis completed for {ticker}. Consider detailed manual review.",
-        'key_risks': ["Limited analysis depth", "Rule-based assessment only"],
-        'monitoring_requirements': ["Regular portfolio review", "Performance monitoring"]
-    }
-    
-    return fit_analysis
-
-
-def generate_comprehensive_ips_compliance_analysis(ticker: str, result: dict, client_fit: dict, client_data: dict | None = None) -> dict:
-    """Generate comprehensive IPS compliance analysis with detailed score breakdown and specific rationale."""
-    
-    if not client_data:
-        if 'selected_profile' in st.session_state:
-            try:
-                from utils.client_profile_manager import ClientProfileManager
-                profile_manager = ClientProfileManager()
-                client_data = profile_manager.load_client_profile(st.session_state['selected_profile'])
-            except:
-                client_data = {}
-        else:
-            client_data = {}
-    
-    # Extract comprehensive metrics for detailed analysis
-    agent_scores = result.get('agent_scores', {})
-    risk_score = agent_scores.get('risk_agent', 50) or 50
-    value_score = agent_scores.get('value_agent', 50) or 50
-    growth_score = agent_scores.get('growth_momentum_agent', 50) or 50
-    sentiment_score = agent_scores.get('sentiment_agent', 50) or 50
-    macro_score = agent_scores.get('macro_regime_agent', 50) or 50
-    
-    stock_data = result.get('data', {})
-    fundamentals = result.get('fundamentals', {})
-    final_score = result.get('final_score', 50)
-    
-    # Extract detailed financial metrics
-    sector = (stock_data.get('sector') or fundamentals.get('sector') or 'Unknown')
-    market_cap = fundamentals.get('market_cap') or 0
-    pe_ratio = fundamentals.get('pe_ratio')
-    beta = fundamentals.get('beta')
-    # Treat 0 as None for dividend_yield (0 means no dividend data, not 0% yield)
-    dividend_yield = fundamentals.get('dividend_yield')
-    if dividend_yield == 0:
-        dividend_yield = None
-    price = fundamentals.get('price', 0)
-    
-    # Initialize comprehensive analysis structure
-    analysis = {
-        'fit_score_breakdown': {
-            'base_score': 50,
-            'adjustments': [],
-            'final_calculated_score': client_fit.get('fit_score', 50)
-        },
-        'ips_compliance_detailed': {
-            'fully_compliant': [],
-            'partially_compliant': [],
-            'non_compliant': [],
-            'requires_attention': []
-        },
-        'score_explanation': {
-            'why_this_score': '',
-            'why_not_higher': [],
-            'why_not_lower': [],
-            'key_factors': []
-        },
-        'investment_constraints_analysis': {},
-        'recommendation_rationale': ''
-    }
-    
-    # COMPREHENSIVE IPS COMPLIANCE ANALYSIS
-    
-    # 1. RISK TOLERANCE COMPLIANCE ANALYSIS
-    risk_tolerance = client_data.get('risk_tolerance', 'moderate').lower()
-    
-    if risk_tolerance == 'conservative':
-        if risk_score > 80:
-            analysis['ips_compliance_detailed']['non_compliant'].append({
-                'constraint': 'Conservative Risk Tolerance',
-                'violation': f'Risk score {risk_score:.1f}/100 significantly exceeds conservative limits',
-                'impact': 'Major compliance violation - unsuitable for conservative investor',
-                'score_impact': -20
-            })
-            analysis['fit_score_breakdown']['adjustments'].append(('Risk Tolerance Violation', -20))
-        elif risk_score > 65:
-            analysis['ips_compliance_detailed']['requires_attention'].append({
-                'constraint': 'Conservative Risk Tolerance',
-                'concern': f'Risk score {risk_score:.1f}/100 at upper boundary of conservative tolerance',
-                'mitigation': 'Reduced position size (max 3-4% allocation) and enhanced monitoring required',
-                'score_impact': -10
-            })
-            analysis['fit_score_breakdown']['adjustments'].append(('Risk Tolerance Concern', -10))
-        elif risk_score > 50:
-            analysis['ips_compliance_detailed']['partially_compliant'].append({
-                'constraint': 'Conservative Risk Tolerance',
-                'status': f'Risk score {risk_score:.1f}/100 within acceptable range with conditions',
-                'conditions': 'Standard position sizing (max 5% allocation) with quarterly reviews',
-                'score_impact': -5
-            })
-            analysis['fit_score_breakdown']['adjustments'].append(('Risk Tolerance Conditional', -5))
-        else:
-            analysis['ips_compliance_detailed']['fully_compliant'].append({
-                'constraint': 'Conservative Risk Tolerance',
-                'compliance': f'Risk score {risk_score:.1f}/100 fully compliant with conservative parameters',
-                'benefit': 'Suitable for core conservative portfolio allocation up to 7%',
-                'score_impact': +5
-            })
-            analysis['fit_score_breakdown']['adjustments'].append(('Risk Tolerance Match', +5))
-    
-    elif risk_tolerance == 'aggressive':
-        if risk_score < 40:
-            analysis['ips_compliance_detailed']['partially_compliant'].append({
-                'constraint': 'Aggressive Risk Tolerance',
-                'status': f'Risk score {risk_score:.1f}/100 below aggressive targets but acceptable',
-                'note': 'May not maximize return potential given risk tolerance',
-                'score_impact': -5
-            })
-            analysis['fit_score_breakdown']['adjustments'].append(('Below Risk Target', -5))
-        else:
-            analysis['ips_compliance_detailed']['fully_compliant'].append({
-                'constraint': 'Aggressive Risk Tolerance',
-                'compliance': f'Risk score {risk_score:.1f}/100 aligns with aggressive risk parameters',
-                'benefit': 'Suitable for growth-oriented allocations up to 10%',
-                'score_impact': +8
-            })
-            analysis['fit_score_breakdown']['adjustments'].append(('Risk Tolerance Match', +8))
-    
-    # 2. INVESTMENT STYLE COMPLIANCE
-    investment_style = client_data.get('investment_style', 'balanced').lower()
-    
-    if 'value' in investment_style:
-        if value_score > 75:
-            # Build metrics string with available data
-            metrics_parts = []
-            if pe_ratio:
-                metrics_parts.append(f'P/E ratio {pe_ratio:.1f}x')
-            if dividend_yield:
-                metrics_parts.append(f'dividend yield {dividend_yield*100:.1f}%')
-            metrics_str = ', '.join(metrics_parts) if metrics_parts else 'Strong value characteristics confirmed'
-            
-            analysis['ips_compliance_detailed']['fully_compliant'].append({
-                'constraint': 'Value Investment Style',
-                'compliance': f'Value score {value_score:.1f}/100 strongly matches value mandate',
-                'metrics': metrics_str,
-                'score_impact': +12
-            })
-            analysis['fit_score_breakdown']['adjustments'].append(('Value Style Strong Match', +12))
-        elif value_score > 55:
-            analysis['ips_compliance_detailed']['partially_compliant'].append({
-                'constraint': 'Value Investment Style',
-                'status': f'Value score {value_score:.1f}/100 provides moderate value characteristics',
-                'conditions': 'Acceptable for blended value approach with reduced allocation',
-                'score_impact': +5
-            })
-            analysis['fit_score_breakdown']['adjustments'].append(('Value Style Moderate', +5))
-        else:
-            analysis['ips_compliance_detailed']['requires_attention'].append({
-                'constraint': 'Value Investment Style',
-                'concern': f'Value score {value_score:.1f}/100 insufficient for value mandate',
-                'recommendation': 'Consider alternative value opportunities or style drift analysis',
-                'score_impact': -8
-            })
-            analysis['fit_score_breakdown']['adjustments'].append(('Value Style Mismatch', -8))
-    
-    # 3. SECTOR RESTRICTIONS COMPLIANCE
-    restricted_sectors = client_data.get('restricted_sectors', [])
-    if isinstance(restricted_sectors, str):
-        restricted_sectors = [s.strip() for s in restricted_sectors.split(',')]
-    
-    if restricted_sectors:
-        sector_violation = any(sector.lower() in rs.lower() or rs.lower() in sector.lower() 
-                              for rs in restricted_sectors if rs.strip())
-        if sector_violation:
-            analysis['ips_compliance_detailed']['non_compliant'].append({
-                'constraint': 'Sector Restrictions',
-                'violation': f'{sector} sector explicitly prohibited in IPS',
-                'restricted_list': ', '.join(restricted_sectors),
-                'impact': 'Absolute exclusion - cannot be held regardless of other merits',
-                'score_impact': -50  # Major penalty
-            })
-            analysis['fit_score_breakdown']['adjustments'].append(('Sector Restriction Violation', -50))
-        else:
-            analysis['ips_compliance_detailed']['fully_compliant'].append({
-                'constraint': 'Sector Restrictions',
-                'compliance': f'{sector} sector approved - not in restricted list',
-                'cleared_restrictions': ', '.join(restricted_sectors),
-                'score_impact': 0
-            })
-    
-    # 4. POSITION SIZE CONSTRAINTS
-    max_position = client_data.get('max_position_pct', 5)
-    if risk_score > 70:
-        recommended_position = min(max_position, 3)
-        analysis['investment_constraints_analysis']['position_sizing'] = {
-            'max_allowed': f'{max_position}%',
-            'recommended': f'{recommended_position}%',
-            'rationale': f'Reduced from {max_position}% due to elevated risk score ({risk_score:.1f})',
-            'compliance_status': 'Requires reduced sizing'
-        }
-        analysis['fit_score_breakdown']['adjustments'].append(('Position Size Constraint', -3))
-    else:
-        analysis['investment_constraints_analysis']['position_sizing'] = {
-            'max_allowed': f'{max_position}%',
-            'recommended': f'{max_position}%',
-            'rationale': f'Standard sizing appropriate given risk score ({risk_score:.1f})',
-            'compliance_status': 'Fully compliant'
-        }
-    
-    # 5. LIQUIDITY REQUIREMENTS
-    if market_cap < 1_000_000_000:  # Less than $1B
-        analysis['ips_compliance_detailed']['requires_attention'].append({
-            'constraint': 'Liquidity Requirements',
-            'concern': f'${market_cap/1e6:.0f}M market cap may present liquidity constraints',
-            'mitigation': 'Reduced position size and extended trading timeframes required',
-            'score_impact': -8
-        })
-        analysis['fit_score_breakdown']['adjustments'].append(('Liquidity Concern', -8))
-    elif market_cap > 10_000_000_000:  # Greater than $10B
-        analysis['ips_compliance_detailed']['fully_compliant'].append({
-            'constraint': 'Liquidity Requirements',
-            'compliance': f'${market_cap/1e9:.1f}B market cap provides excellent liquidity',
-            'benefit': 'Enables flexible position sizing and efficient execution',
-            'score_impact': +3
-        })
-        analysis['fit_score_breakdown']['adjustments'].append(('Liquidity Advantage', +3))
-    
-    # CALCULATE FINAL SCORE AND EXPLANATIONS
-    base_score = analysis['fit_score_breakdown']['base_score']
-    total_adjustments = sum(adj[1] for adj in analysis['fit_score_breakdown']['adjustments'])
-    calculated_score = max(0, min(100, base_score + total_adjustments))
-    
-    analysis['fit_score_breakdown']['final_calculated_score'] = calculated_score
-    
-    # DETAILED SCORE EXPLANATION
-    actual_fit_score = client_fit.get('fit_score', calculated_score)
-    
-    analysis['score_explanation']['why_this_score'] = f"""
-    The {actual_fit_score:.0f}/100 client fit score reflects a comprehensive IPS compliance analysis:
-    
-    BASE SCORE: {base_score}/100 (neutral starting point)
-    ADJUSTMENTS: {total_adjustments:+.0f} points from IPS factors
-    CALCULATED: {calculated_score:.0f}/100
-    """
-    
-    # Why not higher?
-    if actual_fit_score < 80:
-        negative_adjustments = [adj for adj in analysis['fit_score_breakdown']['adjustments'] if adj[1] < 0]
-        analysis['score_explanation']['why_not_higher'] = [
-            f"{factor}: {impact:+.0f} points" for factor, impact in negative_adjustments
-        ]
-    
-    # Why not lower?  
-    if actual_fit_score > 40:
-        positive_adjustments = [adj for adj in analysis['fit_score_breakdown']['adjustments'] if adj[1] > 0]
-        analysis['score_explanation']['why_not_lower'] = [
-            f"{factor}: {impact:+.0f} points" for factor, impact in positive_adjustments  
-        ]
-    
-    # Key factors
-    significant_factors = [adj for adj in analysis['fit_score_breakdown']['adjustments'] if abs(adj[1]) >= 5]
-    analysis['score_explanation']['key_factors'] = [
-        f"{factor} ({impact:+.0f})" for factor, impact in significant_factors
-    ]
-    
-    # FINAL RECOMMENDATION
-    compliance_violations = len(analysis['ips_compliance_detailed']['non_compliant'])
-    attention_items = len(analysis['ips_compliance_detailed']['requires_attention'])
-    
-    if compliance_violations > 0:
-        analysis['recommendation_rationale'] = f"NOT SUITABLE: {compliance_violations} IPS violation(s) present. Major constraints prevent investment regardless of financial merits."
-    elif attention_items > 2:
-        analysis['recommendation_rationale'] = f"PROCEED WITH CAUTION: {attention_items} items require attention. Enhanced due diligence and modified parameters necessary."
-    elif actual_fit_score >= 70:
-        analysis['recommendation_rationale'] = f"SUITABLE: Strong IPS alignment with score of {actual_fit_score}/100. Standard investment process and sizing appropriate."
-    elif actual_fit_score >= 50:
-        analysis['recommendation_rationale'] = f"CONDITIONALLY SUITABLE: Moderate fit ({actual_fit_score}/100) with specific conditions. Reduced sizing and enhanced monitoring recommended."
-    else:
-        analysis['recommendation_rationale'] = f"POOR FIT: Low compatibility ({actual_fit_score}/100) with client IPS. Consider alternatives better aligned with constraints."
-    
-    return analysis
 
 
 def get_agent_collaboration(result: dict) -> dict:
     """Generate collaboration insights between agents."""
     collaboration = {}
-    
+
     agent_scores = result['agent_scores']
-    
+
     # Value vs Growth/Momentum collaboration
     if 'value_agent' in agent_scores and 'growth_momentum_agent' in agent_scores:
         value_score = agent_scores['value_agent']
         growth_score = agent_scores['growth_momentum_agent']
-        
+
         if abs(value_score - growth_score) < 10:
             collaboration['value_agent'] = f"Growth agent agrees (score: {growth_score:.1f}) - balanced value/growth profile"
             collaboration['growth_momentum_agent'] = f"Value agent concurs (score: {value_score:.1f}) - well-balanced investment"
@@ -3586,7 +2815,7 @@ def portfolio_recommendations_page():
     challenge_context = st.text_area(
         "Describe the investment challenge, goals, and requirements:",
         value="""Generate an optimal diversified portfolio that maximizes risk-adjusted returns 
-while adhering to the client's Investment Policy Statement constraints.
+while adhering to the Investment Policy Statement constraints.
 Focus on high-quality companies with strong fundamentals and growth potential.""",
         height=120,
         help="Provide detailed context about the investment challenge"
@@ -4120,174 +3349,6 @@ def display_portfolio_recommendations(result: dict):
 # Backtesting functionality removed as requested
 
 
-def parse_client_profile_with_ai(client_profile_text: str) -> dict | None:
-    """Use OpenAI to parse client profile text into structured IPS.""" 
-    import os
-    
-    # Check if OpenAI is available
-    if OpenAI is None:
-        st.error("OpenAI library not installed. Cannot parse client profile with AI.")
-        return parse_client_profile_fallback(client_profile_text)
-    
-    # Check if OpenAI key is available
-    if not os.getenv('OPENAI_API_KEY'):
-        st.error("OpenAI API key not found. Cannot parse client profile with AI.")
-        return parse_client_profile_fallback(client_profile_text)
-    
-    client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
-    
-    system_prompt = """You are an expert investment advisor. Parse the client profile text and extract key information to create an Investment Policy Statement (IPS).
-
-Return a JSON object with this exact structure:
-{
-  "client": {
-    "name": "extracted or 'Client'",
-    "risk_tolerance": "low, moderate, or high",
-    "time_horizon_years": number (1-30),
-    "cash_buffer_pct": number (3-20)
-  },
-  "position_limits": {
-    "max_position_pct": number (3-15),
-    "max_sector_pct": number (15-50), 
-    "max_industry_pct": number (10-30)
-  },
-  "exclusions": {
-    "sectors": ["list of excluded sectors"],
-    "tickers": ["list of excluded tickers"],
-    "esg_screens": ["list of ESG exclusions"]
-  },
-  "portfolio_constraints": {
-    "beta_min": number (0.5-1.0),
-    "beta_max": number (1.0-2.0)
-  },
-  "universe": {
-    "min_price": number (1-10),
-    "min_avg_daily_volume": number (500000-5000000)
-  }
-}
-
-Use reasonable defaults if information is missing. Be conservative with risk settings unless explicitly stated otherwise."""
-
-    user_prompt = f"Parse this client profile:\n\n{client_profile_text}"
-    
-    try:
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ],
-            temperature=0.1,
-            max_tokens=1000
-        )
-        
-        import json
-        response_content = response.choices[0].message.content
-        
-        # Check if response is empty or None
-        if not response_content:
-            st.error("AI parsing error: Empty response from OpenAI")
-            return None
-        
-        response_content = response_content.strip()
-        
-        # Try to extract JSON from response (in case there's extra text)
-        json_start = response_content.find('{')
-        json_end = response_content.rfind('}') + 1
-        
-        if json_start == -1 or json_end <= json_start:
-            st.error(f"AI parsing error: No valid JSON found in response")
-            st.code(f"Response received: {response_content[:200]}...")
-            return None
-        
-        json_content = response_content[json_start:json_end]
-        
-        try:
-            parsed_data = json.loads(json_content)
-        except json.JSONDecodeError as json_error:
-            st.error(f"AI parsing error: Invalid JSON format - {json_error}")
-            st.code(f"JSON content: {json_content[:200]}...")
-            return None
-        
-        # Validate that we got the expected structure
-        if not isinstance(parsed_data, dict):
-            st.error("AI parsing error: Response is not a JSON object")
-            return None
-        
-        # Merge with default IPS structure
-        default_ips = st.session_state.config_loader.load_ips()
-        
-        # Update with parsed values
-        for section, values in parsed_data.items():
-            if section in default_ips:
-                if isinstance(values, dict):
-                    default_ips[section].update(values)
-                else:
-                    default_ips[section] = values
-            else:
-                st.warning(f"Unknown section '{section}' in parsed data - skipping")
-        
-        st.success("Client profile parsed successfully!")
-        return default_ips
-        
-    except Exception as e:
-        st.error(f"AI parsing error: {e}")
-        st.warning("Tip: Make sure your OpenAI API key is valid and you have sufficient credits")
-        # Try fallback parsing
-        st.info("Attempting fallback parsing method...")
-        return parse_client_profile_fallback(client_profile_text)
-
-
-def parse_client_profile_fallback(client_profile_text: str) -> dict:
-    """Fallback method to parse client profile using keyword matching."""
-    import re
-    
-    # Load default IPS
-    default_ips = st.session_state.config_loader.load_ips()
-    
-    text_lower = client_profile_text.lower()
-    
-    # Parse risk tolerance
-    if any(word in text_lower for word in ['conservative', 'low risk', 'safety', 'capital preservation']):
-        default_ips['client']['risk_tolerance'] = 'low'
-        default_ips['client']['cash_buffer_pct'] = 15
-        default_ips['position_limits']['max_position_pct'] = 5
-    elif any(word in text_lower for word in ['aggressive', 'high risk', 'growth', 'speculative']):
-        default_ips['client']['risk_tolerance'] = 'high' 
-        default_ips['client']['cash_buffer_pct'] = 5
-        default_ips['position_limits']['max_position_pct'] = 10
-    else:
-        default_ips['client']['risk_tolerance'] = 'moderate'
-        default_ips['client']['cash_buffer_pct'] = 10
-        default_ips['position_limits']['max_position_pct'] = 7
-    
-    # Parse time horizon
-    years_match = re.search(r'(\d+)\s*year', text_lower)
-    if years_match:
-        years = int(years_match.group(1))
-        default_ips['client']['time_horizon_years'] = min(max(years, 1), 30)
-    
-    # Parse exclusions
-    if 'esg' in text_lower or 'sustainable' in text_lower or 'ethical' in text_lower:
-        default_ips['exclusions']['esg_screens'] = ['tobacco', 'weapons', 'fossil_fuels']
-    
-    if 'no tobacco' in text_lower or 'tobacco free' in text_lower:
-        default_ips['exclusions']['sectors'].append('tobacco')
-    
-    if 'no crypto' in text_lower or 'cryptocurrency' in text_lower:
-        default_ips['exclusions']['tickers'].extend(['COIN', 'MSTR', 'RIOT'])
-    
-    # Extract client name if mentioned
-    name_match = re.search(r'(?:client|name|i am|my name is)\s+(?:is\s+)?([a-zA-Z\s]+)', text_lower)
-    if name_match:
-        name = name_match.group(1).strip().title()
-        if len(name) < 50:  # Reasonable name length
-            default_ips['client']['name'] = name
-    
-    st.info("Used fallback parsing - review settings carefully")
-    return default_ips
-
-
 def display_backtest_results(results: dict):
     """Display backtest results."""
     
@@ -4597,19 +3658,19 @@ def portfolio_management_page():
             st.write("**Analysis Mode:**")
             analysis_mode = st.selectbox(
                 "Choose Analysis Mode:",
-                ["Client Fit Analysis", "Custom Specifications"],
-                help="Client Fit uses predetermined risk profiles, Custom allows detailed specifications"
+                ["Risk Profile", "Custom Specifications"],
+                help="Risk Profile uses predetermined risk profiles, Custom allows detailed specifications"
             )
             
             # Initialize variables with defaults
-            client_profile = None
+            risk_profile = None
             target_sectors = []
             risk_tolerance = 5
             growth_focus = 5
             
-            if analysis_mode == "Client Fit Analysis":
-                client_profile = st.selectbox(
-                    "Client Risk Profile:",
+            if analysis_mode == "Risk Profile":
+                risk_profile = st.selectbox(
+                    "Risk Profile:",
                     ["Conservative", "Moderate", "Aggressive", "Growth-Focused"],
                     help="Predetermined allocation strategies based on risk tolerance"
                 )
@@ -4670,7 +3731,7 @@ def portfolio_management_page():
                 st.session_state.portfolio_holdings,
                 portfolio_analysis,
                 analysis_mode,
-                client_profile if analysis_mode == "Client Fit Analysis" else None,
+                risk_profile if analysis_mode == "Risk Profile" else None,
                 target_sectors if analysis_mode == "Custom Specifications" else [],
                 risk_tolerance,
                 growth_focus
@@ -4979,8 +4040,8 @@ def portfolio_management_page():
                         st.write("**Investment Horizon Fit:**")
                         st.write(deep_analysis['time_horizon_fit'])
                         
-                        if analysis_mode == "Client Fit Analysis" and client_profile:
-                            st.write(f"**Profile Alignment ({client_profile}):**")
+                        if analysis_mode == "Risk Profile" and risk_profile:
+                            st.write(f"**Profile Alignment ({risk_profile}):**")
                             st.write(deep_analysis['profile_alignment'])
                     
                     st.markdown("---")
@@ -5145,7 +4206,7 @@ def portfolio_management_page():
                         portfolio_analysis,
                         deep_analysis,
                         analysis_mode,
-                        client_profile if analysis_mode == "Client Fit Analysis" else None
+                        risk_profile if analysis_mode == "Risk Profile" else None
                     )
                     
                     if suggestions:
@@ -5490,7 +4551,7 @@ def perform_deep_portfolio_analysis(holdings, analysis_data, mode, profile, targ
         analysis['time_horizon_fit'] = "Suitable for 1-3 year horizon with quarterly rebalancing"
     
     # Profile alignment
-    if mode == "Client Fit Analysis" and profile:
+    if mode == "Risk Profile" and profile:
         if profile == "Conservative" and analysis['risk_score'] <= 4:
             analysis['profile_alignment'] = "Well-aligned with conservative profile - appropriate risk levels and diversification"
         elif profile == "Aggressive" and analysis['risk_score'] >= 6:
@@ -5597,46 +4658,6 @@ def perform_deep_portfolio_analysis(holdings, analysis_data, mode, profile, targ
     
     return analysis
 
-
-def generate_client_fit_recommendations(holdings, analysis_data, profile):
-    """Generate recommendations based on client risk profile."""
-    total_allocation = sum(holdings.values())
-    
-    # Define profile-based allocation strategies
-    profile_strategies = {
-        "Conservative": {"tech_max": 25, "growth_focus": 3, "risk_tolerance": 3},
-        "Moderate": {"tech_max": 40, "growth_focus": 5, "risk_tolerance": 5},
-        "Aggressive": {"tech_max": 60, "growth_focus": 8, "risk_tolerance": 8},
-        "Growth-Focused": {"tech_max": 70, "growth_focus": 9, "risk_tolerance": 7}
-    }
-    
-    strategy = profile_strategies.get(profile, profile_strategies["Moderate"])
-    
-    # Analyze current allocation vs profile
-    tech_allocation = 0
-    for ticker in holdings.keys():
-        ticker_sectors = analysis_data.get(ticker, {}).get('sectors', [])
-        if ticker_sectors and any(sector in ticker_sectors for sector in ['Technology', 'Software']):
-            tech_allocation += holdings[ticker]
-    
-    recommendations = {
-        'status': 'good',
-        'message': f"Your portfolio aligns well with a {profile} investment profile.",
-        'adjustments': []
-    }
-    
-    if tech_allocation > strategy['tech_max']:
-        recommendations['status'] = 'adjust'
-        recommendations['adjustments'].append(
-            f"Consider reducing technology allocation from {tech_allocation:.1f}% to under {strategy['tech_max']}%"
-        )
-    
-    if total_allocation < 95:
-        recommendations['adjustments'].append(
-            f"Consider allocating the remaining {100-total_allocation:.1f}% to complete your portfolio"
-        )
-    
-    return recommendations
 
 
 def generate_custom_recommendations(holdings, analysis_data, target_sectors, risk_tolerance, growth_focus):
@@ -7339,7 +6360,7 @@ def qa_learning_center_page():
         else:
             st.info("No analyses in archive yet. Perform stock analyses to build your archive.")
     
-    with tab4:
+    with tab3:
         st.subheader("Weekly Reviews")
         
         # Check for stocks due for review
@@ -8261,39 +7282,9 @@ def configuration_page():
     st.write("Manage Investment Policy Statement constraints and model parameters.")
     st.markdown("---")
     
-    tab1, tab2, tab3, tab4 = st.tabs(["Client Profile Upload", "IPS Configuration", "Agent Weights", "⏱️ Timing Analytics"])
-    
+    tab1, tab2, tab3 = st.tabs(["IPS Configuration", "Agent Weights", "Timing Analytics"])
+
     with tab1:
-        st.subheader("Client Profile Upload")
-        st.write("Configure client requirements and investment objectives (detailed text input)")
-        
-        # Text input for client profile
-        client_profile = st.text_area(
-            "Client Profile & Requirements:",
-            height=300,
-            placeholder="""Paste your client profile here. For example:
-
-The client is a 35-year-old technology executive with a high risk tolerance and 10-year investment horizon. They are seeking aggressive growth and are comfortable with high volatility. The client wants to exclude tobacco and weapons companies from their portfolio.
-
-Key constraints:
-- No single position over 10% of portfolio
-- Maximum 40% allocation to any single sector
-- Prefer growth-oriented companies with strong fundamentals
-- ESG considerations: exclude tobacco, weapons, fossil fuels
-- Minimum $5 stock price
-- Beta range: 0.8 to 1.3 acceptable
-
-The client has expressed interest in technology, healthcare, and renewable energy sectors...""",
-            help="Paste the detailed client profile text here. The system will parse this and update the IPS automatically."
-        )
-        
-        if st.button("Parse and Update IPS"):
-            if client_profile:
-                st.info("Manual parsing of client profile text is not yet implemented. Please configure IPS directly in the next tab.")
-            else:
-                st.warning("Please enter a client profile first.")
-    
-    with tab2:
         st.subheader("IPS Configuration")
         st.write("Configure Investment Policy Statement constraints.")
         
@@ -8380,11 +7371,11 @@ The client has expressed interest in technology, healthcare, and renewable energ
             if 'exclusions' not in ips:
                 ips['exclusions'] = {}
             ips['exclusions']['sectors'] = excluded_sectors
-            
+
             st.session_state.config_loader.save_ips(ips)
             st.success("IPS configuration saved!")
-    
-    with tab3:
+
+    with tab2:
         st.subheader("Agent Weights")
         st.write("Adjust how much each agent influences the final score.")
         
@@ -8409,7 +7400,7 @@ The client has expressed interest in technology, healthcare, and renewable energ
             st.info("System will be reinitialized on next analysis.")
             st.session_state.initialized = False
     
-    with tab4:
+    with tab3:
         st.subheader("⏱️ Analysis Timing Analytics")
         st.write("Deep insights into step-level timing data collected from all analyses.")
         
@@ -8622,13 +7613,11 @@ def update_google_sheets_portfolio(result: dict) -> bool:
                     round(stock.get('agent_scores', {}).get('macro_regime_agent', 0), 1),
                     round(stock.get('agent_scores', {}).get('risk_agent', 0), 1),
                     round(stock.get('agent_scores', {}).get('sentiment_agent', 0), 1),
-                    round(stock.get('agent_scores', {}).get('client_layer_agent', 0), 1),
                     stock.get('agent_rationales', {}).get('value_agent', '')[:1000],
                     stock.get('agent_rationales', {}).get('growth_momentum_agent', '')[:1000],
                     stock.get('agent_rationales', {}).get('macro_regime_agent', '')[:1000],
                     stock.get('agent_rationales', {}).get('risk_agent', '')[:1000],
                     stock.get('agent_rationales', {}).get('sentiment_agent', '')[:1000],
-                    stock.get('agent_rationales', {}).get('client_layer_agent', '')[:1000],
                     stock.get('rationale', '')[:1500],
                     stock['fundamentals'].get('pe_ratio', 0),
                     stock['fundamentals'].get('pb_ratio', 0),
@@ -8766,7 +7755,7 @@ def update_google_sheets_portfolio(result: dict) -> bool:
             st.info("System will be reinitialized on next analysis.")
             st.session_state.initialized = False
     
-    with tab4:
+    with tab3:
         st.subheader("⏱️ Analysis Timing Analytics")
         st.write("Deep insights into step-level timing data collected from all analyses.")
         
@@ -9341,7 +8330,6 @@ def update_google_sheets_qa_analyses(analysis_archive: dict, show_price_ui: bool
                     'Macro Regime Agent Score': safe_float(agent_scores.get('macro_regime_agent'), 1),
                     'Risk Agent Score': safe_float(agent_scores.get('risk_agent'), 1),
                     'Sentiment Agent Score': safe_float(agent_scores.get('sentiment_agent'), 1),
-                    'Client Layer Agent Score': safe_float(agent_scores.get('client_layer_agent'), 1),
                     'Learning Agent Score': safe_float(agent_scores.get('learning_agent'), 1),
                     'Sector': safe_value(fundamentals.get('sector', 'N/A')),
                     'Pe Ratio': safe_float(fundamentals.get('pe_ratio'), 2),
@@ -9355,7 +8343,6 @@ def update_google_sheets_qa_analyses(analysis_archive: dict, show_price_ui: bool
                     'Macro Regime Agent Rationale': ' '.join(str(agent_rationales.get('macro_regime_agent', 'N/A')).split())[:1000],
                     'Risk Agent Rationale': ' '.join(str(agent_rationales.get('risk_agent', 'N/A')).split())[:1000],
                     'Sentiment Agent Rationale': ' '.join(str(agent_rationales.get('sentiment_agent', 'N/A')).split())[:1000],
-                    'Client Layer Agent Rationale': ' '.join(str(agent_rationales.get('client_layer_agent', 'N/A')).split())[:1000],
                     'Learning Agent Rationale': ' '.join(str(agent_rationales.get('learning_agent', 'N/A')).split())[:1000],
                     'Analysis Date': analysis.timestamp.strftime('%Y-%m-%d %H:%M:%S'),
                     'Export Date': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),

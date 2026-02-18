@@ -12,7 +12,7 @@ Streamlit Cloud provides free hosting for Streamlit apps directly from GitHub.
 
 1. **Push your code to GitHub**
    ```bash
-   git remote add origin https://github.com/YOUR_USERNAME/wharton-investment-analysis.git
+   git remote add origin https://github.com/YOUR_USERNAME/investment-analysis.git
    git push -u origin main
    ```
 
@@ -55,8 +55,8 @@ Streamlit Cloud automatically redeploys when you push to the main branch.
 
 ```bash
 # Clone and setup
-git clone https://github.com/YOUR_USERNAME/wharton-investment-analysis.git
-cd wharton-investment-analysis
+git clone https://github.com/YOUR_USERNAME/investment-analysis.git
+cd investment-analysis
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt

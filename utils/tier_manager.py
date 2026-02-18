@@ -1,5 +1,5 @@
 """
-Tier Manager for the Wharton Investment Analysis System.
+Tier Manager for the Investment Analysis Platform.
 
 Manages free vs pro tier detection and API key resolution.
 - Free tier: Uses the system owner's API keys (from .env or Streamlit Secrets)

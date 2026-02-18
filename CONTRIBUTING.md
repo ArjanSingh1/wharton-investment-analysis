@@ -7,7 +7,7 @@ Contributions are welcome! Here's how you can help.
 1. Fork the repository
 2. Clone your fork:
    ```bash
-   git clone https://github.com/YOUR_USERNAME/wharton-investment-analysis.git
+   git clone https://github.com/YOUR_USERNAME/investment-analysis.git
    ```
 3. Create a branch:
    ```bash

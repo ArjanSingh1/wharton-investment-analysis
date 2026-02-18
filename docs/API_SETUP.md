@@ -1,6 +1,6 @@
 # API Setup Guide
 
-This guide walks you through getting API keys for the Wharton Investment Analysis System.
+This guide walks you through getting API keys for the Investment Analysis Platform.
 
 ## Required: OpenAI API Key
 

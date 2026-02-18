@@ -1,10 +1,6 @@
-# Wharton Investment Analysis System
+# Investment Analysis Platform
 
 A multi-agent AI-powered investment research platform built with Streamlit. Analyzes stocks across multiple dimensions, generates portfolio recommendations, and provides backtesting capabilities.
-
-## Live Demo
-
-**[Try the app on Streamlit Cloud](https://wharton-investment.streamlit.app)** (free, no setup required)
 
 ## Features
 
@@ -27,14 +23,11 @@ The system uses a multi-agent architecture where each agent scores stocks indepe
 | Risk Agent | Risk assessment | Beta, volatility, correlation, max drawdown |
 | Sentiment Agent | Market sentiment | News headlines, analyst revisions, earnings surprises |
 
-Scores are blended with configurable weights and adjusted for investor profile constraints.
+Scores are blended with configurable weights and adjusted for investment policy constraints.
 
 ## Quick Start
 
-### Option 1: Use the Live Demo
-Visit the [Streamlit Cloud deployment](https://wharton-investment.streamlit.app) - free tier available with no setup.
-
-### Option 2: Run Locally
+### Run Locally
 
 ```bash
 # Clone the repository
@@ -84,7 +77,7 @@ See [docs/API_SETUP.md](docs/API_SETUP.md) for step-by-step instructions on gett
 ## Project Structure
 
 ```
-wharton-investment-analysis/
+investment-analysis/
 ├── app.py                    # Main Streamlit application
 ├── agents/                   # Multi-agent analysis system
 │   ├── base_agent.py         # Abstract base class for all agents
@@ -93,7 +86,6 @@ wharton-investment-analysis/
 │   ├── macro_regime_agent.py # Macro economic analysis
 │   ├── risk_agent.py         # Risk assessment
 │   ├── sentiment_agent.py    # Sentiment analysis
-│   ├── client_layer_agent.py # Client profile adjustments
 │   └── learning_agent.py     # Performance learning
 ├── engine/                   # Core orchestration
 │   ├── portfolio_orchestrator.py  # Agent coordination
@@ -127,7 +119,7 @@ agent_weights:
   sentiment: 1.25      # Market sentiment weight
 ```
 
-### Investor Profile
+### Investment Policy
 Edit `config/ips.yaml` to set your investment constraints (risk tolerance, time horizon, position limits, etc.).
 
 ## Documentation
@@ -136,7 +128,6 @@ Edit `config/ips.yaml` to set your investment constraints (risk tolerance, time 
 - [Deployment Guide](docs/DEPLOYMENT.md) - Deploy to Streamlit Cloud
 - [System Architecture](docs/SYSTEM_FLOW_DIAGRAMS.md) - How the system works
 - [Google Sheets Setup](docs/GOOGLE_SHEETS_SETUP.md) - Export integration
-- [Changelog](docs/CHANGELOG.md) - Release history
 
 ## Contributing
 
