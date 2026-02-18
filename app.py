@@ -703,38 +703,35 @@ def stock_analysis_page():
                 st.error("Please enter at least one ticker symbol")
                 return
         
-        # Create detailed progress tracking
-        progress_bar = st.progress(0)
-        status_text = st.empty()
-        status_text.text("Initializing analysis...")
+        # Create a single empty slot - writing into it forces an immediate Streamlit delta
+        progress_slot = st.empty()
+        progress_slot.progress(0, text="Initializing analysis...")
 
         # Track analysis start time for adaptive estimates
         import time as time_module
         analysis_start_time = time_module.time()
 
-        # Direct progress callback - updates widgets from the main thread
+        # Direct progress callback - each call writes a fresh progress element into the slot,
+        # which forces an immediate WebSocket delta flush to the browser.
         def on_progress(pct, message):
-            progress_bar.progress(pct / 100.0)
-            status_text.text(message)
+            progress_slot.progress(pct / 100.0, text=message)
 
         # Handle single or multiple stock analysis
         if analysis_mode == "Single Stock":
             # Single stock analysis (existing logic)
             try:
-                # Calculate estimated time
+                # Show initial estimate
                 if st.session_state.analysis_times:
                     avg_time = sum(st.session_state.analysis_times) / len(st.session_state.analysis_times)
                     est_minutes = int(avg_time // 60)
                     est_seconds = int(avg_time % 60)
-                    status_text.text(f"Starting analysis... (Est. {est_minutes}m {est_seconds}s)")
+                    progress_slot.progress(0, text=f"Starting analysis... (Est. {est_minutes}m {est_seconds}s)")
                 else:
-                    status_text.text("Starting analysis... (Est. ~30-40s)")
-
-                progress_bar.progress(0)
+                    progress_slot.progress(0, text="Starting analysis... (Est. ~80s)")
 
                 # Track start time
                 start_time = time_module.time()
-                
+
                 # Convert analysis_date to string format
                 # Handle both date object and potential tuple from date_input
                 if isinstance(analysis_date, (datetime, type(datetime.now().date()))):
@@ -743,7 +740,7 @@ def stock_analysis_page():
                     date_str = analysis_date[0].strftime('%Y-%m-%d') if hasattr(analysis_date[0], 'strftime') else str(analysis_date[0])
                 else:
                     date_str = datetime.now().strftime('%Y-%m-%d')
-                
+
                 # Run analysis with optional agent weights
                 result = st.session_state.orchestrator.analyze_stock(
                     ticker=ticker,
@@ -751,38 +748,35 @@ def stock_analysis_page():
                     agent_weights=agent_weights,
                     progress_callback=on_progress
                 )
-                
+
                 # Track end time and store
                 end_time = time_module.time()
                 analysis_duration = end_time - start_time
                 st.session_state.analysis_times.append(analysis_duration)
-                
+
                 # Keep only last 50 times for better estimates
                 if len(st.session_state.analysis_times) > 50:
                     st.session_state.analysis_times = st.session_state.analysis_times[-50:]
-                
-                # Final completion with actual time
+
+                # Final completion
                 actual_minutes = int(analysis_duration // 60)
                 actual_seconds = int(analysis_duration % 60)
-                status_text.text(f"Analysis complete! (Took {actual_minutes}m {actual_seconds}s)")
-                progress_bar.progress(100)
-                
-                # Clear progress indicators after a brief moment
+                progress_slot.progress(1.0, text=f"Analysis complete! (Took {actual_minutes}m {actual_seconds}s)")
+
+                # Clear progress indicator after a brief moment
                 time_module.sleep(0.5)
-                progress_bar.empty()
-                status_text.empty()
-                
+                progress_slot.empty()
+
                 if 'error' in result:
                     st.error(f"{result['error']}")
                     return
-                
+
                 # Display results
                 display_stock_analysis(result)
-                
+
             except Exception as e:
-                # Clear progress indicators on error
-                progress_bar.empty()
-                status_text.empty()
+                # Clear progress indicator on error
+                progress_slot.empty()
                 st.error(f"Analysis failed: {e}")
         
         else:
@@ -836,15 +830,13 @@ def stock_analysis_page():
                     est_seconds = est_remaining_seconds % 60
                     overall_status.text(f"Analyzing {stock_ticker} ({idx + 1} of {len(tickers)}) - Est. {est_minutes}m {est_seconds}s remaining")
                 
-                # Create progress tracking for individual stock
-                stock_progress_bar = st.progress(0.0)
-                stock_status_text = st.empty()
-                stock_status_text.text("Initializing analysis...")
+                # Create a single empty slot for this stock's progress
+                stock_progress_slot = st.empty()
+                stock_progress_slot.progress(0, text="Initializing analysis...")
 
-                # Direct progress callback for this stock
-                def stock_on_progress(pct, message, _bar=stock_progress_bar, _text=stock_status_text):
-                    _bar.progress(pct / 100.0)
-                    _text.text(message)
+                # Direct progress callback for this stock - writes fresh element each call
+                def stock_on_progress(pct, message, _slot=stock_progress_slot):
+                    _slot.progress(pct / 100.0, text=message)
 
                 try:
                     # Convert analysis_date to string format
@@ -863,25 +855,23 @@ def stock_analysis_page():
                         agent_weights=agent_weights,
                         progress_callback=stock_on_progress
                     )
-                    
+
                     # Track time for this stock
                     stock_end_time = time_module.time()
                     stock_duration = stock_end_time - stock_start_time
                     st.session_state.analysis_times.append(stock_duration)
-                    
+
                     # Keep only last 50 times
                     if len(st.session_state.analysis_times) > 50:
                         st.session_state.analysis_times = st.session_state.analysis_times[-50:]
-                    
-                    # Clear individual progress indicators
-                    stock_progress_bar.empty()
-                    stock_status_text.empty()
-                    
+
+                    # Clear individual progress indicator
+                    stock_progress_slot.empty()
+
                     if 'error' in result:
                         failed_tickers.append((stock_ticker, result['error']))
                     else:
                         results.append(result)
-                        
                     
                     # Update time estimate with actual batch performance
                     completed = idx + 1
@@ -895,8 +885,7 @@ def stock_analysis_page():
                         time_estimate_display.info(f"Updated estimate: ~{est_minutes}m {est_seconds}s remaining ({completed}/{len(tickers)} complete, {stocks_per_minute:.1f} stocks/min)")
                     
                 except Exception as e:
-                    stock_progress_bar.empty()
-                    stock_status_text.empty()
+                    stock_progress_slot.empty()
                     failed_tickers.append((stock_ticker, str(e)))
                 
                 # Update overall progress
@@ -2352,13 +2341,9 @@ Focus on high-quality companies with strong fundamentals and growth potential.""
     if st.button("Generate Portfolio", type="primary", use_container_width=True):
         with st.spinner("Running AI-powered portfolio generation..."):
             try:
-                # Progress tracking
-                progress_bar = st.progress(0)
-                status_text = st.empty()
-
-                # Generate recommendations
-                status_text.text("AI agents selecting optimal tickers across all market caps...")
-                progress_bar.progress(10)
+                # Progress tracking using empty slot for immediate delta flushes
+                progress_slot = st.empty()
+                progress_slot.progress(0.10, text="AI agents selecting optimal tickers across all market caps...")
 
                 result = st.session_state.orchestrator.recommend_portfolio(
                     challenge_context=challenge_context,
@@ -2366,22 +2351,16 @@ Focus on high-quality companies with strong fundamentals and growth potential.""
                     num_positions=num_positions
                 )
 
-                status_text.text("Running multi-agent analysis on selected stocks...")
-                progress_bar.progress(60)
+                progress_slot.progress(0.85, text="Constructing portfolio with position sizing...")
+                progress_slot.progress(1.0, text="Portfolio generation complete!")
+                progress_slot.empty()
 
-                status_text.text("Constructing portfolio with position sizing...")
-                progress_bar.progress(85)
-
-                status_text.text("Portfolio generation complete!")
-                progress_bar.progress(100)
-                
                 # Store result in session state
                 st.session_state.portfolio_result = result
-                
-                
+
                 # Display results
                 display_portfolio_recommendations(result)
-                
+
             except Exception as e:
                 st.error(f"Portfolio generation failed: {e}")
                 import traceback
