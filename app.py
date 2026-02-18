@@ -521,7 +521,7 @@ def main():
 
 def stock_analysis_page():
     """Single or multiple stock analysis page."""
-    import time as time_module  # Explicit import to avoid shadowing issues
+    import threading, math
     st.header("Stock Analysis")
     st.write("Evaluate individual securities or analyze multiple stocks at once using multi-agent investment research methodology.")
     st.markdown("---")
@@ -706,14 +706,8 @@ def stock_analysis_page():
         # Create empty slots for progress display
         progress_slot = st.empty()
 
-        # Track analysis start time for adaptive estimates
-        import time as time_module
-        analysis_start_time = time_module.time()
-
         def _render_progress(slot, pct, message):
-            """Render a custom HTML progress bar into a Streamlit empty slot.
-            Uses raw HTML/CSS via st.markdown to bypass st.progress widget issues.
-            """
+            """Render a custom HTML progress bar into a Streamlit empty slot."""
             pct = max(0, min(100, int(pct)))
             slot.markdown(
                 f'<div style="width:100%;background:#e0e0e0;border-radius:4px;overflow:hidden;'
@@ -724,15 +718,96 @@ def stock_analysis_page():
                 unsafe_allow_html=True
             )
 
-        _render_progress(progress_slot, 0, "Initializing analysis...")
+        def _run_with_smooth_progress(slot, orchestrator, tick, date_s, weights=None):
+            """Run analysis in a background thread with smooth progress interpolation.
 
-        # Direct progress callback
-        def on_progress(pct, message):
-            _render_progress(progress_slot, pct, message)
+            The orchestrator reports ~20 discrete milestones over ~80s.  Between
+            milestones this function uses phase-aware time predictions and an
+            asymptotic advance curve to creep the bar forward continuously.
+            An exponential-chase filter smooths the rendered value at ~10 fps.
+            """
+            _prog = {
+                'mile_pct': 0.0,
+                'mile_msg': 'Initializing...',
+                'mile_t': time.time(),
+                'done': False,
+                'result': None,
+                'error': None,
+            }
+
+            def _on_milestone(pct, message):
+                """Called from background thread when orchestrator reports a milestone."""
+                _prog['mile_pct'] = pct
+                _prog['mile_msg'] = message
+                _prog['mile_t'] = time.time()
+
+            def _bg():
+                try:
+                    _prog['result'] = orchestrator.analyze_stock(
+                        ticker=tick,
+                        analysis_date=date_s,
+                        agent_weights=weights,
+                        progress_callback=_on_milestone,
+                    )
+                except Exception as e:
+                    _prog['error'] = e
+                finally:
+                    _prog['done'] = True
+
+            thread = threading.Thread(target=_bg, daemon=True)
+            thread.start()
+
+            # Phase speed calibration: expected seconds per percentage point.
+            # Derived from measured runs (~37s for data, ~45s for agents, ~1s final).
+            def _phase_rate(p):
+                if p < 42:  return 0.88   # Data gathering  0-42%
+                if p < 98:  return 0.80   # Agent analysis  42-98%
+                return 0.50               # Finalization    98-100%
+
+            display_pct = 0.0
+            last_render = 0.0
+
+            while not _prog['done']:
+                now = time.time()
+                mp  = _prog['mile_pct']
+                mt  = _prog['mile_t']
+                msg = _prog['mile_msg']
+
+                # Time-based advance prediction past last milestone
+                dt = now - mt
+                rate = _phase_rate(mp)
+                raw_advance = dt / rate if rate > 0 else 0
+
+                # Asymptotic curve: approaches max_advance but never overshoots.
+                # This prevents the bar from racing ahead of the actual work.
+                max_advance = 9.0
+                predicted = max_advance * (1 - math.exp(-raw_advance / max_advance))
+
+                target = min(mp + predicted, 99.0)
+
+                # Exponential chase: display smoothly converges toward target.
+                # At 0.15 per tick (20 ticks/s) the half-life is ~0.2s — fast
+                # enough to feel responsive, slow enough to look smooth.
+                if target > display_pct:
+                    display_pct += (target - display_pct) * 0.15
+                display_pct = max(0.0, min(display_pct, 99.0))
+
+                # Render at ~10 fps (every other tick)
+                if now - last_render >= 0.10:
+                    _render_progress(slot, display_pct, msg)
+                    last_render = now
+
+                time.sleep(0.05)
+
+            if _prog['error']:
+                raise _prog['error']
+
+            return _prog['result']
+
+        _render_progress(progress_slot, 0, "Initializing analysis...")
 
         # Handle single or multiple stock analysis
         if analysis_mode == "Single Stock":
-            # Single stock analysis (existing logic)
             try:
                 # Show initial estimate
                 if st.session_state.analysis_times:
@@ -743,11 +818,9 @@ def stock_analysis_page():
                 else:
                     _render_progress(progress_slot, 0, "Starting analysis... (Est. ~80s)")
 
-                # Track start time
-                start_time = time_module.time()
+                start_time = time.time()
 
                 # Convert analysis_date to string format
-                # Handle both date object and potential tuple from date_input
                 if isinstance(analysis_date, (datetime, type(datetime.now().date()))):
                     date_str = analysis_date.strftime('%Y-%m-%d') if hasattr(analysis_date, 'strftime') else str(analysis_date)
                 elif isinstance(analysis_date, tuple) and len(analysis_date) > 0:
@@ -755,30 +828,25 @@ def stock_analysis_page():
                 else:
                     date_str = datetime.now().strftime('%Y-%m-%d')
 
-                # Run analysis with optional agent weights
-                result = st.session_state.orchestrator.analyze_stock(
-                    ticker=ticker,
-                    analysis_date=date_str,
-                    agent_weights=agent_weights,
-                    progress_callback=on_progress
+                # Run with smooth progress interpolation (background thread + 10fps polling)
+                orchestrator = st.session_state.orchestrator
+                result = _run_with_smooth_progress(
+                    progress_slot, orchestrator, ticker, date_str, agent_weights
                 )
 
-                # Track end time and store
-                end_time = time_module.time()
+                # Track timing
+                end_time = time.time()
                 analysis_duration = end_time - start_time
                 st.session_state.analysis_times.append(analysis_duration)
 
-                # Keep only last 50 times for better estimates
                 if len(st.session_state.analysis_times) > 50:
                     st.session_state.analysis_times = st.session_state.analysis_times[-50:]
 
-                # Final completion
                 actual_minutes = int(analysis_duration // 60)
                 actual_seconds = int(analysis_duration % 60)
                 _render_progress(progress_slot, 100, f"Analysis complete! (Took {actual_minutes}m {actual_seconds}s)")
 
-                # Clear progress indicator after a brief moment
-                time_module.sleep(0.5)
+                time.sleep(0.5)
                 progress_slot.empty()
 
                 if 'error' in result:
@@ -795,8 +863,6 @@ def stock_analysis_page():
         
         else:
             # Multiple stocks analysis
-            import time
-            
             st.info(f"Analyzing {len(tickers)} stocks: {', '.join(tickers)}")
             
             # Create overall progress tracking
@@ -820,41 +886,33 @@ def stock_analysis_page():
             time_estimate_display.info(f"Initial estimate: ~{est_minutes}m {est_seconds}s for {len(tickers)} stocks")
             
             for idx, stock_ticker in enumerate(tickers):
-                stock_start_time = time_module.time()
-                
+                stock_start_time = time.time()
+
                 # Calculate dynamic time remaining using actual batch performance
                 completed_count = idx  # Number of stocks completed so far
                 if completed_count > 0:
-                    # Calculate elapsed time and stocks per minute
                     elapsed_time = time.time() - batch_start_time
                     stocks_per_minute = completed_count / (elapsed_time / 60)
-                    
-                    # Calculate remaining time based on actual rate
+
                     remaining_stocks = len(tickers) - idx
                     est_remaining_minutes = remaining_stocks / stocks_per_minute if stocks_per_minute > 0 else 0
                     est_minutes = int(est_remaining_minutes)
                     est_seconds = int((est_remaining_minutes - est_minutes) * 60)
-                    
+
                     overall_status.text(f"Analyzing {stock_ticker} ({idx + 1} of {len(tickers)}) - Est. {est_minutes}m {est_seconds}s remaining (Rate: {stocks_per_minute:.1f} stocks/min)")
                 else:
-                    # Use historical average for first stock
                     remaining_stocks = len(tickers) - idx
                     est_remaining_seconds = int(avg_time * remaining_stocks)
                     est_minutes = est_remaining_seconds // 60
                     est_seconds = est_remaining_seconds % 60
                     overall_status.text(f"Analyzing {stock_ticker} ({idx + 1} of {len(tickers)}) - Est. {est_minutes}m {est_seconds}s remaining")
-                
+
                 # Create a single empty slot for this stock's progress
                 stock_progress_slot = st.empty()
                 _render_progress(stock_progress_slot, 0, "Initializing analysis...")
 
-                # Direct progress callback for this stock
-                def stock_on_progress(pct, message, _slot=stock_progress_slot):
-                    _render_progress(_slot, pct, message)
-
                 try:
                     # Convert analysis_date to string format
-                    # Handle both date object and potential tuple from date_input
                     if isinstance(analysis_date, (datetime, type(datetime.now().date()))):
                         date_str = analysis_date.strftime('%Y-%m-%d') if hasattr(analysis_date, 'strftime') else str(analysis_date)
                     elif isinstance(analysis_date, tuple) and len(analysis_date) > 0:
@@ -862,20 +920,17 @@ def stock_analysis_page():
                     else:
                         date_str = datetime.now().strftime('%Y-%m-%d')
 
-                    # Run analysis for this stock
-                    result = st.session_state.orchestrator.analyze_stock(
-                        ticker=stock_ticker,
-                        analysis_date=date_str,
-                        agent_weights=agent_weights,
-                        progress_callback=stock_on_progress
+                    # Run with smooth progress interpolation
+                    orchestrator = st.session_state.orchestrator
+                    result = _run_with_smooth_progress(
+                        stock_progress_slot, orchestrator, stock_ticker, date_str, agent_weights
                     )
 
                     # Track time for this stock
-                    stock_end_time = time_module.time()
+                    stock_end_time = time.time()
                     stock_duration = stock_end_time - stock_start_time
                     st.session_state.analysis_times.append(stock_duration)
 
-                    # Keep only last 50 times
                     if len(st.session_state.analysis_times) > 50:
                         st.session_state.analysis_times = st.session_state.analysis_times[-50:]
 
