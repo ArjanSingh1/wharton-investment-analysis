@@ -92,13 +92,18 @@ class PortfolioOrchestrator:
         """
         logger.info(f"Starting comprehensive analysis for {ticker} as of {analysis_date}")
 
-        # Phase durations based on typical runs (used for smooth progress interpolation)
-        # Phase 1: Data gathering 0-30% (~30-40s)
-        # Phase 2: Agent analysis 30-85% (~20-30s, 5 agents)
-        # Phase 3: Blending/finalization 85-100% (~1-2s)
-        PHASE_DATA_GATHER = (0, 30)    # 0% to 30%
-        PHASE_AGENTS = (30, 85)         # 30% to 85%
-        PHASE_FINALIZE = (85, 100)      # 85% to 100%
+        # Phase durations based on measured runs (used for smooth progress interpolation)
+        # Phase 1: Data gathering 0-42% (~35s, 42% of total time)
+        # Phase 2: Agent analysis 42-98% (~48s, 56% of total time, 5 agents with article fetching)
+        # Phase 3: Blending/finalization 98-100% (~1s, 2% of total time)
+        PHASE_DATA_GATHER = (0, 42)    # 0% to 42%
+        PHASE_AGENTS = (42, 98)         # 42% to 98%
+        PHASE_FINALIZE = (98, 100)      # 98% to 100%
+
+        # Default phase durations (seconds) - calibrated from real test runs
+        DEFAULT_DATA_GATHER_DURATION = 35
+        DEFAULT_AGENTS_DURATION = 48
+        DEFAULT_FINALIZE_DURATION = 1
 
         analysis_start_time = time.time()
 
@@ -201,8 +206,7 @@ class PortfolioOrchestrator:
         update_progress(f"Fetching data for {ticker} from multiple sources...", 3)
 
         # Start smooth interpolator for data gathering phase
-        # Estimate ~35s for data gathering based on typical runs
-        data_gather_duration = 35
+        data_gather_duration = DEFAULT_DATA_GATHER_DURATION
         import streamlit as st
         if hasattr(st, 'session_state'):
             hist = getattr(st.session_state, 'analysis_phase_times', {})
@@ -211,7 +215,7 @@ class PortfolioOrchestrator:
 
         interpolator_thread = threading.Thread(
             target=_smooth_progress_interpolator,
-            args=(3, 28, data_gather_duration, f"Gathering data for {ticker}..."),
+            args=(3, 40, data_gather_duration, f"Gathering data for {ticker}..."),
             daemon=True
         )
         interpolator_thread.start()
@@ -256,7 +260,7 @@ class PortfolioOrchestrator:
         except Exception:
             pass
 
-        update_progress(f"Data gathered for {ticker} in {data_gather_elapsed:.0f}s", 30)
+        update_progress(f"Data gathered for {ticker} in {data_gather_elapsed:.0f}s", 42)
         
         if not data or not data.get('fundamentals'):
             logger.warning(f"No fundamental data for {ticker}")
@@ -294,16 +298,16 @@ class PortfolioOrchestrator:
         else:
             market_cap_str = "N/A"
         
-        update_progress(f"Data ready: ${price} price, {pe_ratio} P/E, {market_cap_str} mkt cap", 30)
+        update_progress(f"Data ready: ${price} price, {pe_ratio} P/E, {market_cap_str} mkt cap", 42)
 
-        # 2. Phase 2: Run all agents (30-85%)
+        # 2. Phase 2: Run all agents (42-98%)
         agent_results = {}
         agent_count = 0
         total_agents = len(self.agents)
         agent_phase_start = time.time()
 
         # Estimate per-agent duration for smooth interpolation
-        avg_agent_duration = 5  # Default 5s per agent
+        avg_agent_duration = DEFAULT_AGENTS_DURATION / total_agents  # ~9.6s per agent
         try:
             if hasattr(st, 'session_state'):
                 hist = getattr(st.session_state, 'analysis_phase_times', {})
@@ -322,9 +326,10 @@ class PortfolioOrchestrator:
 
         for agent_name, agent in self.agents.items():
             agent_count += 1
-            # Calculate progress range for this agent (30-85%, evenly divided)
-            agent_start_pct = 30 + ((agent_count - 1) / total_agents) * 55
-            agent_end_pct = 30 + (agent_count / total_agents) * 55
+            # Calculate progress range for this agent (42-98%, evenly divided)
+            agent_pct_range = PHASE_AGENTS[1] - PHASE_AGENTS[0]  # 56
+            agent_start_pct = PHASE_AGENTS[0] + ((agent_count - 1) / total_agents) * agent_pct_range
+            agent_end_pct = PHASE_AGENTS[0] + (agent_count / total_agents) * agent_pct_range
             agent_label = agent_labels_map.get(agent_name, agent_name.replace('_agent', '').title())
 
             # Descriptive message for this agent
@@ -387,7 +392,7 @@ class PortfolioOrchestrator:
                     'details': {}
                 }
         
-        # 3. Phase 3: Blend scores and finalize (85-100%)
+        # 3. Phase 3: Blend scores and finalize (98-100%)
         agent_phase_elapsed = time.time() - agent_phase_start
 
         # Record agent phase timing
@@ -410,11 +415,11 @@ class PortfolioOrchestrator:
         except Exception:
             pass
 
-        update_progress(f"Blending agent scores with configured weights...", 88)
+        update_progress(f"Blending agent scores with configured weights...", 98)
         blended_score = self._blend_scores(agent_results)
 
         recommendation = self._generate_recommendation(blended_score)
-        update_progress(f"Analysis complete: {blended_score:.1f}/100 - {recommendation}", 95)
+        update_progress(f"Analysis complete: {blended_score:.1f}/100 - {recommendation}", 99)
         final_score = blended_score
 
         total_time = time.time() - analysis_start_time
@@ -475,81 +480,80 @@ class PortfolioOrchestrator:
     @staticmethod
     def _estimate_time_remaining(elapsed: float, progress_pct: float, session_state=None) -> str:
         """
-        Estimate time remaining with EMA smoothing for a stable display.
+        Phase-aware time remaining estimation.
 
-        Uses three strategies blended together:
-        1. Historical average from past runs (most reliable after first run)
-        2. Current rate extrapolation (adapts to current conditions)
-        3. EMA smoothing on the previous estimate (prevents jumps)
+        Uses known phase boundaries and durations to calculate remaining time
+        based on which phase we're currently in, rather than linear extrapolation.
 
-        Returns formatted time string like " ~45s" or " ~1m 30s", or "" if not enough data.
+        Phase allocations (calibrated from real test runs):
+          0-42%:  Data gathering (~35s)
+          42-98%: Agent analysis (~48s)
+          98-100%: Finalization (~1s)
         """
-        import time as _time
-
         if progress_pct < 3 or elapsed < 1.0:
             return ""
 
-        estimated_remaining = None
-        historical_estimate = None
-        rate_estimate = None
+        # Phase definitions: (start_pct, end_pct, default_duration_seconds)
+        phases = [
+            (0, 42, 35),    # Data gathering
+            (42, 98, 48),   # Agent analysis
+            (98, 100, 1),   # Finalization
+        ]
 
-        # Strategy 1: Historical average
+        # Override defaults with historical data if available
         if session_state is not None:
-            hist = getattr(session_state, 'analysis_times', None)
-            if hist and len(hist) > 0:
-                avg_total = sum(hist) / len(hist)
-                historical_estimate = avg_total * (1 - progress_pct / 100.0)
+            hist = getattr(session_state, 'analysis_phase_times', {})
+            if hist.get('data_gather') and len(hist['data_gather']) > 0:
+                phases[0] = (0, 42, sum(hist['data_gather']) / len(hist['data_gather']))
+            if hist.get('agents') and len(hist['agents']) > 0:
+                phases[1] = (42, 98, sum(hist['agents']) / len(hist['agents']))
 
-        # Strategy 2: Current rate extrapolation
-        if progress_pct >= 5:
-            rate = elapsed / progress_pct
-            rate_estimate = rate * (100 - progress_pct)
+        # Find current phase and calculate remaining time
+        remaining = 0.0
+        found_current = False
 
-        # Blend strategies based on available data and progress
-        if historical_estimate is not None and rate_estimate is not None:
-            # Blend: early on trust history more, later trust current rate more
-            history_weight = max(0.2, 1.0 - (progress_pct / 100.0))
-            estimated_remaining = (historical_estimate * history_weight +
-                                   rate_estimate * (1 - history_weight))
-        elif historical_estimate is not None:
-            estimated_remaining = historical_estimate
-        elif rate_estimate is not None:
-            estimated_remaining = rate_estimate
-        else:
+        for start_pct, end_pct, duration in phases:
+            if not found_current:
+                if progress_pct < end_pct:
+                    # We're in this phase
+                    found_current = True
+                    phase_progress = (progress_pct - start_pct) / (end_pct - start_pct) if end_pct > start_pct else 1.0
+                    phase_progress = max(0.0, min(1.0, phase_progress))
+                    remaining += duration * (1.0 - phase_progress)
+                # else: we've passed this phase, skip it
+            else:
+                # Future phase - add full duration
+                remaining += duration
+
+        if not found_current:
             return ""
 
-        # EMA smoothing: prevent jumps by blending with previous estimate
+        # EMA smoothing to prevent display jumps
         if session_state is not None:
             prev = getattr(session_state, '_eta_previous', None)
             if prev is not None and prev > 0:
-                alpha = 0.3  # Smoothing factor — lower = smoother
-                # Cap increases to 20% of previous to avoid upward jumps
-                if estimated_remaining > prev * 1.2:
-                    estimated_remaining = prev * 1.2
-                estimated_remaining = alpha * estimated_remaining + (1 - alpha) * prev
-            # Store for next call
+                alpha = 0.4
+                # Cap increases to 15% of previous to avoid upward jumps
+                if remaining > prev * 1.15:
+                    remaining = prev * 1.15
+                remaining = alpha * remaining + (1 - alpha) * prev
             try:
-                session_state._eta_previous = estimated_remaining
+                session_state._eta_previous = remaining
             except Exception:
                 pass
 
-        # Force decay in last 15% — ETA should only go down near completion
-        if progress_pct >= 85 and estimated_remaining is not None:
-            decay_factor = max(0.0, (100 - progress_pct) / 15.0)
-            estimated_remaining *= decay_factor
-
         # Ensure non-negative
-        if estimated_remaining is None or estimated_remaining <= 0:
+        if remaining <= 0:
             return ""
 
         # Format
-        remaining = max(1, int(estimated_remaining))
-        if remaining < 60:
-            return f" ~{remaining}s"
+        secs = max(1, int(remaining))
+        if secs < 60:
+            return f" ~{secs}s"
         else:
-            mins = remaining // 60
-            secs = remaining % 60
-            return f" ~{mins}m {secs}s"
+            mins = secs // 60
+            s = secs % 60
+            return f" ~{mins}m {s}s"
 
     def _blend_scores(self, agent_results: Dict[str, Dict]) -> float:
         """

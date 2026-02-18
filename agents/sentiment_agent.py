@@ -99,18 +99,36 @@ class SentimentAgent(BaseAgent):
                 
                 details['recent_headlines'] = [item['title'] for item in scraped_articles[:5]]
             else:
-                logger.warning(f"No successfully scraped articles found for {ticker} - cannot perform sentiment analysis")
-                scores['news_sentiment_score'] = None  # No score without scraped content
+                logger.warning(f"No successfully scraped articles found for {ticker} - trying direct Perplexity sentiment")
+                perplexity_result = self._direct_perplexity_sentiment(ticker, fundamentals)
+                if perplexity_result:
+                    scores['news_sentiment_score'] = perplexity_result['score']
+                    details['num_articles'] = len(perplexity_result.get('articles', []))
+                    details['article_details'] = perplexity_result.get('articles', [])
+                    details['enhanced_news_used'] = True
+                    details['perplexity_direct'] = True
+                    details['recent_headlines'] = [a['title'] for a in perplexity_result.get('articles', [])]
+                else:
+                    scores['news_sentiment_score'] = None
+                    details['num_articles'] = 0
+                    details['article_details'] = []
+                    details['enhanced_news_used'] = False
+                    details['scraping_failed'] = True
+        else:
+            logger.warning(f"No enhanced news articles found for {ticker} - trying direct Perplexity sentiment")
+            perplexity_result = self._direct_perplexity_sentiment(ticker, fundamentals)
+            if perplexity_result:
+                scores['news_sentiment_score'] = perplexity_result['score']
+                details['num_articles'] = len(perplexity_result.get('articles', []))
+                details['article_details'] = perplexity_result.get('articles', [])
+                details['enhanced_news_used'] = True
+                details['perplexity_direct'] = True
+                details['recent_headlines'] = [a['title'] for a in perplexity_result.get('articles', [])]
+            else:
+                scores['news_sentiment_score'] = None
                 details['num_articles'] = 0
                 details['article_details'] = []
                 details['enhanced_news_used'] = False
-                details['scraping_failed'] = True
-        else:
-            logger.warning(f"No enhanced news articles found for {ticker} - cannot perform sentiment analysis")
-            scores['news_sentiment_score'] = None  # No score without articles
-            details['num_articles'] = 0
-            details['article_details'] = []
-            details['enhanced_news_used'] = False
         
         # 2. Event Detection
         events = self._detect_key_events(news_items)
@@ -731,6 +749,95 @@ Focus on actionable insights about market sentiment momentum and investor behavi
                 return s[:200]
 
         return content[:200]
+
+    def _direct_perplexity_sentiment(self, ticker: str, fundamentals: Dict) -> Optional[Dict]:
+        """
+        Fallback: Ask Perplexity directly to analyze recent news sentiment for a stock.
+        Used when article scraping fails entirely.
+
+        Returns:
+            Dict with 'score' (0-100) and 'articles' list, or None on failure
+        """
+        import os
+        import requests
+        import re
+        import json
+
+        perplexity_key = os.getenv('PERPLEXITY_API_KEY')
+        if not perplexity_key:
+            return None
+
+        company_name = fundamentals.get('name', ticker)
+
+        prompt = (
+            f"Analyze the current news sentiment for {company_name} ({ticker}) stock.\n\n"
+            f"1. Review the most recent 5 news articles about {ticker} from the past 14 days.\n"
+            f"2. Assess overall sentiment on a scale of 0-100 "
+            f"(0=extremely negative, 50=neutral, 100=extremely positive).\n\n"
+            f"Return your response in EXACTLY this JSON format:\n"
+            f'{{"score": <number 0-100>, "summary": "<1-2 sentence summary>", '
+            f'"articles": ['
+            f'{{"title": "<title>", "source": "<source name>", "url": "<url>", "sentiment": "<positive/negative/neutral>"}},'
+            f"..."
+            f"]}}"
+        )
+
+        headers = {
+            "Authorization": f"Bearer {perplexity_key}",
+            "Content-Type": "application/json"
+        }
+
+        payload = {
+            "model": "sonar-pro",
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.1,
+            "max_tokens": 800
+        }
+
+        try:
+            response = requests.post(
+                "https://api.perplexity.ai/chat/completions",
+                headers=headers,
+                json=payload,
+                timeout=30
+            )
+
+            if response.status_code != 200:
+                logger.warning(f"Direct Perplexity sentiment failed: HTTP {response.status_code}")
+                return None
+
+            result = response.json()
+            content = result['choices'][0]['message']['content']
+
+            # Parse JSON from response (may be wrapped in markdown code blocks)
+            json_match = re.search(r'\{[\s\S]*\}', content)
+            if not json_match:
+                logger.warning(f"Could not parse JSON from Perplexity sentiment response")
+                return None
+
+            parsed = json.loads(json_match.group())
+            score = float(parsed.get('score', 50))
+            score = max(0, min(100, score))
+
+            articles = []
+            for a in parsed.get('articles', [])[:5]:
+                articles.append({
+                    'title': a.get('title', 'News Article'),
+                    'url': a.get('url', ''),
+                    'source': a.get('source', 'Unknown'),
+                    'published_at': 'Recent',
+                    'description': a.get('sentiment', 'neutral'),
+                    'preview': '',
+                    'relevance_score': 'N/A',
+                    'content_length': 0
+                })
+
+            logger.info(f"Direct Perplexity sentiment for {ticker}: score={score:.0f}, articles={len(articles)}")
+            return {'score': score, 'articles': articles, 'summary': parsed.get('summary', '')}
+
+        except Exception as e:
+            logger.error(f"Direct Perplexity sentiment failed for {ticker}: {e}")
+            return None
     
     def _fetch_enhanced_news(self, ticker: str, original_news: List[Dict], fundamentals: Dict, analysis_context: str = "") -> List[Dict]:
         """
@@ -763,10 +870,18 @@ Focus on actionable insights about market sentiment momentum and investor behavi
 
         if not article_urls:
             logger.warning(f"No article URLs found for {ticker} from Perplexity")
-            # Fall back to original news if available
+            # Fall back to original news if available, enriching with scraped_content
             if original_news:
-                logger.info(f"Using {len(original_news)} articles from data provider for {ticker}")
-                return original_news
+                logger.info(f"Enriching {len(original_news)} original articles for {ticker}")
+                enriched = []
+                for article in original_news:
+                    a = dict(article)
+                    content = (a.get('summary', '') or a.get('description', '')
+                               or a.get('content', '') or a.get('title', ''))
+                    if content and len(content) >= 10:
+                        a['scraped_content'] = content[:1000]
+                        enriched.append(a)
+                return enriched if enriched else original_news
             return []
 
         logger.info(f"Found {len(article_urls)} article URLs for {ticker}")
@@ -782,11 +897,21 @@ Focus on actionable insights about market sentiment momentum and investor behavi
             sorted_articles = self._sort_articles_by_recency(scraped_articles, ticker)
             return sorted_articles
         else:
-            logger.warning(f"Failed to scrape articles for {ticker} - using original news")
-            # Fall back to original news
-            if original_news:
-                sorted_original = self._sort_articles_by_recency(original_news, ticker)
-                return sorted_original
+            logger.warning(f"Failed to scrape articles for {ticker} - enriching original news as fallback")
+            # Enrich original_news with scraped_content from their existing fields
+            # so the scraped_content filter in analyze() won't reject them
+            fallback_articles = []
+            source_articles = original_news if original_news else []
+            for article in source_articles:
+                enriched = dict(article)
+                content = (article.get('summary', '') or article.get('description', '')
+                           or article.get('content', '') or article.get('title', ''))
+                if content and len(content) >= 10:
+                    enriched['scraped_content'] = content[:1000]
+                    fallback_articles.append(enriched)
+            if fallback_articles:
+                logger.info(f"Enriched {len(fallback_articles)} original news articles as fallback for {ticker}")
+                return self._sort_articles_by_recency(fallback_articles, ticker)
             return original_news
 
     def _build_analysis_context(self, ticker: str, fundamentals: Dict, data: Dict) -> str:
