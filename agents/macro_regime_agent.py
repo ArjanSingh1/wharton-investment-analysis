@@ -72,10 +72,16 @@ class MacroRegimeAgent(BaseAgent):
         
         # Clamp to 0-100 range
         final_score = max(0, min(100, final_score))
-        
+
+        # Fetch domain-specific supporting articles
+        articles = self._fetch_supporting_articles(
+            ticker, f"{sector} sector macroeconomic outlook interest rate impact economic regime"
+        )
+
         # Generate rationale with actual final score
         rationale = self._generate_rationale(ticker, sector, regime, sector_adjustment, macro_data, final_score)
-        
+        rationale += self._format_article_references(articles)
+
         details = {
             'regime': regime,
             'sector_adjustment': sector_adjustment,
@@ -86,7 +92,8 @@ class MacroRegimeAgent(BaseAgent):
             'beta': beta,
             'yield_curve_slope': macro_data.get('yield_curve_slope'),
             'inflation_yoy': macro_data.get('inflation_yoy'),
-            'unemployment': macro_data.get('unemployment_rate')
+            'unemployment': macro_data.get('unemployment_rate'),
+            'supporting_articles': articles
         }
         
         return {

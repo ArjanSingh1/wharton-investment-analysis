@@ -76,7 +76,7 @@ class SentimentAgent(BaseAgent):
             scraped_articles = [article for article in enhanced_news if 'scraped_content' in article and article.get('scraped_content')]
             
             if scraped_articles:
-                logger.info(f"✅ Found {len(scraped_articles)} successfully scraped articles for {ticker}")
+                logger.info(f"Found {len(scraped_articles)} successfully scraped articles for {ticker}")
                 sentiment_score = self._analyze_news_sentiment(scraped_articles, ticker)
                 scores['news_sentiment_score'] = sentiment_score
                 details['num_articles'] = len(scraped_articles)
@@ -92,20 +92,21 @@ class SentimentAgent(BaseAgent):
                         'published_at': item.get('publishedAt', item.get('published_at', 'Unknown')),
                         'description': item.get('description', '')[:200] + '...' if item.get('description') else 'No description',
                         'relevance_score': item.get('relevance_score', 'N/A'),
-                        'content_length': len(item.get('scraped_content', ''))
+                        'content_length': len(item.get('scraped_content', '')),
+                        'preview': self._extract_article_preview(item.get('scraped_content', ''), ticker)
                     }
                     details['article_details'].append(article_detail)
                 
-                details['recent_headlines'] = [item['title'] for item in scraped_articles[:3]]
+                details['recent_headlines'] = [item['title'] for item in scraped_articles[:5]]
             else:
-                logger.warning(f"❌ No successfully scraped articles found for {ticker} - cannot perform sentiment analysis")
+                logger.warning(f"No successfully scraped articles found for {ticker} - cannot perform sentiment analysis")
                 scores['news_sentiment_score'] = None  # No score without scraped content
                 details['num_articles'] = 0
                 details['article_details'] = []
                 details['enhanced_news_used'] = False
                 details['scraping_failed'] = True
         else:
-            logger.warning(f"❌ No enhanced news articles found for {ticker} - cannot perform sentiment analysis")
+            logger.warning(f"No enhanced news articles found for {ticker} - cannot perform sentiment analysis")
             scores['news_sentiment_score'] = None  # No score without articles
             details['num_articles'] = 0
             details['article_details'] = []
@@ -226,7 +227,7 @@ Output only a number 0-100 for overall sentiment:"""
         scraped_info_parts = []
         article_links = []
         
-        for i, article in enumerate(scraped_articles[:3], 1):  # Use top 3 articles
+        for i, article in enumerate(scraped_articles[:5], 1):  # Use top 5 articles
             title = article.get('title', f'Article {i}')
             url = article.get('url', '')
             content = article.get('scraped_content', article.get('content', ''))
@@ -528,11 +529,11 @@ Provide your analysis after the sentiment score."""
         # Recent headlines analysis with sources and links
         if news_items and len(news_items) > 0:
             explanation += f"\n**Recent Headlines Analysis:**\n"
-            for i, item in enumerate(news_items[:3], 1):
+            for i, item in enumerate(news_items[:5], 1):
                 title = item.get('title', 'No title')
                 source = item.get('source', 'Unknown Source')
                 url = item.get('url', '')
-                
+
                 title_display = f"{title[:80]}{'...' if len(title) > 80 else ''}"
                 
                 if url:
@@ -589,7 +590,7 @@ Provide your analysis after the sentiment score."""
         
         # Prepare detailed context for OpenAI with URLs included
         headlines_with_urls = []
-        for item in news_items[:3]:  # Focus on top 3 scraped articles
+        for item in news_items[:5]:  # Focus on top 5 scraped articles
             title = item.get('title', 'No title')
             url = item.get('url', '')
             if url and url.startswith('http'):
@@ -616,11 +617,11 @@ Your analysis should be:
         sources_info = ""
         if news_items:
             source_details = []
-            for i, item in enumerate(news_items[:3], 1):
+            for i, item in enumerate(news_items[:5], 1):
                 source = item.get('source', 'Unknown')
                 url = item.get('url', '')
                 title = item.get('title', f'Article {i}')
-                
+
                 if url and url.startswith('http'):
                     source_details.append(f"Article {i}: {title} | {source} | {url}")
                 else:
@@ -690,7 +691,7 @@ Focus on actionable insights about market sentiment momentum and investor behavi
             return ""
         
         links_with_info = []
-        for i, item in enumerate(news_items[:3], 1):
+        for i, item in enumerate(news_items[:5], 1):
             title = item.get('title', f'Article {i}')
             url = item.get('url', '')
             source = item.get('source', 'Unknown Source')
@@ -703,9 +704,33 @@ Focus on actionable insights about market sentiment momentum and investor behavi
                 links_with_info.append(f"Article {i}: {title} | {source} | (No URL available)")
         
         if links_with_info:
-            return "📰 ARTICLE SOURCES:\n" + '\n'.join(links_with_info)
+            return "ARTICLE SOURCES:\n" + '\n'.join(links_with_info)
         else:
             return ""
+
+    def _extract_article_preview(self, content: str, ticker: str) -> str:
+        """Extract a meaningful preview quote from article content."""
+        if not content or len(content) < 50:
+            return ""
+
+        import re
+        # Split into sentences
+        sentences = re.split(r'(?<=[.!?])\s+', content)
+
+        # Try to find sentences mentioning the ticker
+        relevant = [s.strip() for s in sentences
+                    if ticker.lower() in s.lower() and 30 < len(s.strip()) < 300]
+
+        if relevant:
+            return relevant[0][:200]
+
+        # Fall back to first substantial sentence
+        for sentence in sentences:
+            s = sentence.strip()
+            if 40 < len(s) < 300:
+                return s[:200]
+
+        return content[:200]
     
     def _fetch_enhanced_news(self, ticker: str, original_news: List[Dict], fundamentals: Dict, analysis_context: str = "") -> List[Dict]:
         """
@@ -1048,10 +1073,10 @@ Return ONLY the 5 URLs, one per line, with no other text or formatting."""
             if url and len(url) > 15 and ('/' in url[8:]):  # Must have domain and path
                 cleaned_urls.append(url)
         
-        logger.info(f"Final cleaned URLs (first 3): {cleaned_urls[:3]}")
-        
-        # Return first 3 URLs
-        return cleaned_urls[:3]
+        logger.info(f"Final cleaned URLs (first 5): {cleaned_urls[:5]}")
+
+        # Return first 5 URLs
+        return cleaned_urls[:5]
     
     def _scrape_article_urls(self, urls: List[str], ticker: str) -> List[Dict]:
         """
@@ -1098,7 +1123,7 @@ Return ONLY the 5 URLs, one per line, with no other text or formatting."""
         
         # Check if URL is a document file (PDF, etc.) that we can't scrape
         if url.lower().endswith(('.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx')):
-            logger.info(f"📄 Skipping document file for article {article_num}: {url}")
+            logger.info(f"Skipping document file for article {article_num}: {url}")
             return {
                 'title': f"{ticker} Financial Document",
                 'source': 'Financial Document',
@@ -1114,7 +1139,7 @@ Return ONLY the 5 URLs, one per line, with no other text or formatting."""
         # Try enhanced scraping with fetch_webpage first
         scraped_content = self._enhanced_scrape_with_fetch_webpage(url, ticker)
         if scraped_content:
-            logger.info(f"✅ Successfully scraped article {article_num} using fetch_webpage")
+            logger.info(f"Successfully scraped article {article_num} using fetch_webpage")
             return scraped_content
         
         # Fallback to BeautifulSoup scraping
@@ -1127,13 +1152,13 @@ Return ONLY the 5 URLs, one per line, with no other text or formatting."""
         }
         
         try:
-            logger.info(f"🌐 Scraping article {article_num}: {url[:60]}...")
+            logger.info(f"Scraping article {article_num}: {url[:60]}...")
             response = requests.get(url, headers=headers, timeout=10)
             if response.status_code != 200:
                 raise Exception(f"HTTP {response.status_code}")
             
             soup = BeautifulSoup(response.content, 'html.parser')
-            logger.info(f"✅ Successfully loaded HTML for article {article_num} ({len(response.content):,} bytes)")
+            logger.info(f"Successfully loaded HTML for article {article_num} ({len(response.content):,} bytes)")
             
             # Extract title
             title = ""
@@ -1176,7 +1201,7 @@ Return ONLY the 5 URLs, one per line, with no other text or formatting."""
             # Create description from first part of content
             description = content[:200] + "..." if len(content) > 200 else content
             
-            logger.info(f"📄 Extracted from article {article_num}: Title='{title[:50]}...', Content={len(content):,} chars")
+            logger.info(f"Extracted from article {article_num}: Title='{title[:50]}...', Content={len(content):,} chars")
             
             return {
                 'title': title,
@@ -1208,7 +1233,7 @@ Return ONLY the 5 URLs, one per line, with no other text or formatting."""
         try:
             # Check if URL is a PDF or other non-HTML content
             if url.lower().endswith(('.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx')):
-                logger.info(f"📄 Skipping document file (not HTML): {url}")
+                logger.info(f"Skipping document file (not HTML): {url}")
                 return {
                     'title': f"{ticker} Financial Document",
                     'source': 'Financial Document',
@@ -1240,11 +1265,11 @@ Return ONLY the 5 URLs, one per line, with no other text or formatting."""
                 'Upgrade-Insecure-Requests': '1',
             }
             
-            logger.info(f"🌐 Enhanced scraping for {url[:60]}...")
+            logger.info(f"Enhanced scraping for {url[:60]}...")
             response = requests.get(url, headers=headers, timeout=15, allow_redirects=True)
             
             if response.status_code != 200:
-                logger.warning(f"❌ Enhanced scraping failed with status {response.status_code}")
+                logger.warning(f"Enhanced scraping failed with status {response.status_code}")
                 return None
                 
             if not BS4_AVAILABLE:
@@ -1270,7 +1295,7 @@ Return ONLY the 5 URLs, one per line, with no other text or formatting."""
             published_at = self._extract_publication_date(soup, url)
             
             if not content or len(content.strip()) < 50:
-                logger.warning(f"❌ Enhanced scraping found insufficient content ({len(content)} chars) for {url[:60]}")
+                logger.warning(f"Enhanced scraping found insufficient content ({len(content)} chars) for {url[:60]}")
                 # Return a basic article structure with just the title and URL for sentiment analysis
                 return {
                     'title': title if title else f"{ticker} Market News",
@@ -1287,7 +1312,7 @@ Return ONLY the 5 URLs, one per line, with no other text or formatting."""
             # Create description from content
             description = content[:200] + "..." if len(content) > 200 else content
             
-            logger.info(f"✅ Enhanced scraping successful: {len(content):,} chars, title: '{title[:50]}...'")
+            logger.info(f"Enhanced scraping successful: {len(content):,} chars, title: '{title[:50]}...'")
             
             return {
                 'title': title,

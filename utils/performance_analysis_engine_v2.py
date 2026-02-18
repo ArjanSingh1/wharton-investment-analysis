@@ -86,7 +86,7 @@ class DynamicTimeEstimator:
                     data = json.load(f)
                     if 'averages' in data:
                         self.historical_averages.update(data['averages'])
-                        logger.info(f"📊 Loaded timing history: {self.historical_averages}")
+                        logger.info(f"Loaded timing history: {self.historical_averages}")
         except Exception as e:
             logger.debug(f"Could not load timing history: {e}")
     
@@ -111,7 +111,7 @@ class DynamicTimeEstimator:
                         'last_updated': datetime.now().isoformat()
                     }, f, indent=2)
                 
-                logger.info(f"💾 Saved timing history: {self.historical_averages}")
+                logger.info(f"Saved timing history: {self.historical_averages}")
         except Exception as e:
             logger.debug(f"Could not save timing history: {e}")
     
@@ -126,7 +126,7 @@ class DynamicTimeEstimator:
         if self.current_phase and self.phase_start_time:
             duration = time.time() - self.phase_start_time
             self.phase_times[self.current_phase] = duration
-            logger.debug(f"⏱️ Phase '{self.current_phase}' took {duration:.2f}s")
+            logger.debug(f"Phase '{self.current_phase}' took {duration:.2f}s")
         
         self.current_phase = phase_name
         self.phase_start_time = time.time()
@@ -136,7 +136,7 @@ class DynamicTimeEstimator:
         if self.current_phase and self.phase_start_time:
             duration = time.time() - self.phase_start_time
             self.phase_times[self.current_phase] = duration
-            logger.debug(f"⏱️ Phase '{self.current_phase}' took {duration:.2f}s")
+            logger.debug(f"Phase '{self.current_phase}' took {duration:.2f}s")
             self.current_phase = None
             self.phase_start_time = None
     
@@ -232,7 +232,7 @@ class DynamicTimeEstimator:
         
         if self.total_start_time:
             total_time = time.time() - self.total_start_time
-            logger.info(f"⏱️ Total analysis time: {total_time:.2f}s")
+            logger.info(f"Total analysis time: {total_time:.2f}s")
             return total_time
         return 0
 
@@ -259,7 +259,7 @@ class PerformanceAnalysisEngineV2:
         # Time estimator
         self.time_estimator = DynamicTimeEstimator()
         
-        logger.info("✅ Performance Analysis Engine V2 initialized")
+        logger.info("Performance Analysis Engine V2 initialized")
     
     def analyze_performance_period(
         self,
@@ -286,7 +286,7 @@ class PerformanceAnalysisEngineV2:
         Returns:
             Complete analysis report with actionable insights
         """
-        logger.info(f"🚀 Starting Performance Analysis V2: {start_date} to {end_date}")
+        logger.info(f"Starting Performance Analysis V2: {start_date} to {end_date}")
         logger.info(f"   Threshold: {min_threshold}% | Tickers: {'ALL' if tickers is None else len(tickers)}")
         
         # Start timing
@@ -298,7 +298,7 @@ class PerformanceAnalysisEngineV2:
             
             if progress_callback:
                 time_remaining = self.time_estimator.estimate_remaining('identify_movements', 0.0)
-                progress_callback("🔍 Scanning Google Sheets for stocks with significant price movements...", 10, time_remaining)
+                progress_callback("Scanning Google Sheets for stocks with significant price movements...", 10, time_remaining)
             
             movements = self._identify_movements_fast(
                 start_date, end_date, tickers, sheets_integration, min_threshold
@@ -311,40 +311,40 @@ class PerformanceAnalysisEngineV2:
                 self.time_estimator.finalize()
                 return self._create_empty_report(start_date, end_date, min_threshold)
             
-            logger.info(f"✅ Found {len(movements)} significant movements")
+            logger.info(f"Found {len(movements)} significant movements")
             
             # Step 2: Analyze movements (FAST - no heavy API calls)
             self.time_estimator.start_phase('analyze_movements')
             
             if progress_callback:
                 time_remaining = self.time_estimator.estimate_remaining('analyze_movements', 0.0, len(movements))
-                progress_callback(f"📊 Identified {len(movements)} stocks to analyze - performing pattern-based analysis...", 40, time_remaining)
+                progress_callback(f"Identified {len(movements)} stocks to analyze - performing pattern-based analysis...", 40, time_remaining)
             
             insights = self._analyze_movements_fast(movements, progress_callback, len(movements))
             
             self.time_estimator.end_phase()
             
-            logger.info(f"✅ Generated {len(insights)} insights")
+            logger.info(f"Generated {len(insights)} insights")
             
             # Step 3: Generate recommendations (FAST)
             self.time_estimator.start_phase('generate_recommendations')
             
             if progress_callback:
                 time_remaining = self.time_estimator.estimate_remaining('generate_recommendations', 0.0)
-                progress_callback(f"💡 Synthesizing insights and generating {len(insights)} model improvement recommendations...", 70, time_remaining)
+                progress_callback(f"Synthesizing insights and generating {len(insights)} model improvement recommendations...", 70, time_remaining)
             
             recommendations = self._generate_recommendations_fast(movements, insights)
             
             self.time_estimator.end_phase()
             
-            logger.info(f"✅ Generated {len(recommendations)} recommendations")
+            logger.info(f"Generated {len(recommendations)} recommendations")
             
             # Step 4: Create report
             self.time_estimator.start_phase('create_report')
             
             if progress_callback:
                 time_remaining = self.time_estimator.estimate_remaining('create_report', 0.0)
-                progress_callback("📝 Compiling comprehensive analysis report with patterns and actionable insights...", 90, time_remaining)
+                progress_callback("Compiling comprehensive analysis report with patterns and actionable insights...", 90, time_remaining)
             
             report = self._create_report(
                 movements, insights, recommendations, start_date, end_date
@@ -359,13 +359,13 @@ class PerformanceAnalysisEngineV2:
             total_time = self.time_estimator.finalize()
             
             if progress_callback:
-                progress_callback(f"✅ Analysis complete! Processed {len(movements)} stocks in {total_time:.1f}s", 100, 0.0)
+                progress_callback(f"Analysis complete! Processed {len(movements)} stocks in {total_time:.1f}s", 100, 0.0)
             
-            logger.info(f"🎉 Performance Analysis V2 COMPLETE in {total_time:.2f}s")
+            logger.info(f"Performance Analysis V2 COMPLETE in {total_time:.2f}s")
             return report
             
         except Exception as e:
-            logger.error(f"❌ Performance Analysis failed: {e}")
+            logger.error(f"Performance Analysis failed: {e}")
             import traceback
             logger.error(traceback.format_exc())
             return self._create_error_report(str(e), start_date, end_date)
@@ -482,7 +482,7 @@ class PerformanceAnalysisEngineV2:
             df = pd.DataFrame(data)
             df.columns = df.columns.str.strip()
             
-            logger.info(f"✅ Fetched {len(df)} rows from Google Sheets")
+            logger.info(f"Fetched {len(df)} rows from Google Sheets")
             return df
             
         except Exception as e:
@@ -605,7 +605,7 @@ class PerformanceAnalysisEngineV2:
                     pct_change = movement.price_change_pct
                     direction = "gained" if pct_change > 0 else "lost"
                     
-                    status_msg = (f"📈 Analyzing {movement.ticker} ({analyzed_count + 1}/{total}) - "
+                    status_msg = (f"Analyzing {movement.ticker} ({analyzed_count + 1}/{total}) - "
                                 f"Stock {direction} {abs(pct_change):.1f}% | "
                                 f"{remaining_count} stocks remaining...")
                     
@@ -804,9 +804,9 @@ class PerformanceAnalysisEngineV2:
             high = sum(1 for r in recommendations if r['priority'] == 'high')
             
             if critical > 0:
-                parts.append(f"🚨 {critical} CRITICAL recommendations require immediate attention.")
+                parts.append(f"{critical} CRITICAL recommendations require immediate attention.")
             elif high > 0:
-                parts.append(f"⚠️ {high} high-priority recommendations identified.")
+                parts.append(f"{high} high-priority recommendations identified.")
             
             # Highlight top recommendation
             top_rec = recommendations[0]
@@ -878,7 +878,7 @@ class PerformanceAnalysisEngineV2:
             with open(history_file, 'w') as f:
                 json.dump(history, f, indent=2, default=str)
             
-            logger.info(f"✅ Saved report to {report_file}")
+            logger.info(f"Saved report to {report_file}")
             
         except Exception as e:
             logger.error(f"Failed to save results: {e}")
@@ -931,7 +931,7 @@ class PerformanceAnalysisEngineV2:
             with open(tracking_file, 'w') as f:
                 json.dump(tracking_data, f, indent=2, default=str)
             
-            logger.info(f"✅ Marked recommendation {recommendation_id} as implemented")
+            logger.info(f"Marked recommendation {recommendation_id} as implemented")
             
         except Exception as e:
             logger.error(f"Failed to mark recommendation as implemented: {e}")

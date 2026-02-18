@@ -75,7 +75,7 @@ class EnhancedDataProvider:
     
     def _initialize_apis(self):
         """Initialize all available APIs."""
-        logger.info("🔧 Starting simplified API initialization...")
+        logger.info("Starting simplified API initialization...")
         
         # Initialize everything to None first to prevent hanging
         self.av_fundamental = None
@@ -84,9 +84,9 @@ class EnhancedDataProvider:
         
         # Just log what keys we have - no actual initialization to avoid hangs
         if self.av_key:
-            logger.info("✅ Alpha Vantage key available")
+            logger.info("Alpha Vantage key available")
         if self.news_key:
-            logger.info("✅ NewsAPI key available")
+            logger.info("NewsAPI key available")
         
         # Log available premium services
         premium_services = []
@@ -96,11 +96,11 @@ class EnhancedDataProvider:
             premium_services.append("Perplexity AI")
         
         if premium_services:
-            logger.info(f"✅ Premium services available: {', '.join(premium_services)}")
+            logger.info(f"Premium services available: {', '.join(premium_services)}")
         else:
-            logger.info("ℹ️ No premium services configured - using free tier with enhanced fallbacks")
+            logger.info("No premium services configured - using free tier with enhanced fallbacks")
         
-        logger.info("🔧 API initialization complete (lazy loading enabled)")
+        logger.info("API initialization complete (lazy loading enabled)")
     
     def _load_emergency_data(self):
         """Load emergency fallback data for critical situations."""
@@ -271,7 +271,7 @@ class EnhancedDataProvider:
         
         try:
             # Use smart retry for Perplexity calls with shorter retry delay
-            logger.info(f"🔄 Making Perplexity request for {ticker} with retry logic...")
+            logger.info(f"Making Perplexity request for {ticker} with retry logic...")
             return self._smart_retry(_make_perplexity_request, max_retries=2, base_delay=3.0)
                 
         except Exception as e:
@@ -280,7 +280,7 @@ class EnhancedDataProvider:
     
     def get_comprehensive_metrics(self, ticker: str, is_etf: bool = False) -> Dict[str, Any]:
         """Get comprehensive financial metrics using multi-source validation."""
-        logger.info(f"🔍 Getting comprehensive metrics for {ticker} (ETF: {is_etf})")
+        logger.info(f"Getting comprehensive metrics for {ticker} (ETF: {is_etf})")
         
         # Get data from all sources
         perplexity_data = self._get_perplexity_metrics(ticker, is_etf)
@@ -288,7 +288,7 @@ class EnhancedDataProvider:
         yfinance_data = self._get_yfinance_metrics(ticker, is_etf)
         
         # Log what we got from each source
-        logger.info(f"📊 Data sources for {ticker}:")
+        logger.info(f"Data sources for {ticker}:")
         logger.info(f"  Perplexity: {list(perplexity_data.keys())}")
         logger.info(f"  Polygon: {list(polygon_data.keys())}")
         logger.info(f"  yfinance: {list(yfinance_data.keys())}")
@@ -296,7 +296,7 @@ class EnhancedDataProvider:
         # Validate and combine the data
         combined_metrics = self._validate_and_combine_metrics(ticker, perplexity_data, polygon_data, yfinance_data)
         
-        logger.info(f"✅ Final metrics for {ticker}: {list(combined_metrics.keys())}")
+        logger.info(f"Final metrics for {ticker}: {list(combined_metrics.keys())}")
         return combined_metrics
     
     def _get_perplexity_metrics(self, ticker: str, is_etf: bool = False) -> Dict[str, Any]:
@@ -333,9 +333,9 @@ class EnhancedDataProvider:
                         price = float(price_str)
                         if 0.01 <= price <= 10000:  # Reasonable range
                             all_metrics['price'] = price
-                            logger.info(f"✅ CLEAN: Extracted price: ${price}")
+                            logger.info(f"CLEAN: Extracted price: ${price}")
             except Exception as e:
-                logger.error(f"❌ CLEAN: Price extraction failed: {e}")
+                logger.error(f"CLEAN: Price extraction failed: {e}")
             
             # CLEAN METHOD 2: Get P/E Ratio - Direct and Simple
             if not is_etf:
@@ -374,7 +374,7 @@ class EnhancedDataProvider:
                                     pe_val = float(pe_match.group(1))
                                     if 5 <= pe_val <= 200:  # Reasonable range
                                         pe = pe_val
-                                        logger.info(f"✅ CLEAN: Extracted P/E: {pe} using pattern: {pattern}")
+                                        logger.info(f"CLEAN: Extracted P/E: {pe} using pattern: {pattern}")
                                         break
                                 except ValueError:
                                     continue
@@ -382,7 +382,7 @@ class EnhancedDataProvider:
                         if pe:
                             all_metrics['pe_ratio'] = pe
                 except Exception as e:
-                    logger.error(f"❌ CLEAN: P/E extraction failed: {e}")
+                    logger.error(f"CLEAN: P/E extraction failed: {e}")
             
             # CLEAN METHOD 3: Get Beta - Direct and Simple
             try:
@@ -422,7 +422,7 @@ class EnhancedDataProvider:
                                 beta_val = float(beta_match.group(1))
                                 if -5 <= beta_val <= 5:  # Reasonable range
                                     beta = beta_val
-                                    logger.info(f"✅ CLEAN: Extracted beta: {beta} using pattern: {pattern}")
+                                    logger.info(f"CLEAN: Extracted beta: {beta} using pattern: {pattern}")
                                     break
                             except ValueError:
                                 continue
@@ -430,7 +430,7 @@ class EnhancedDataProvider:
                     if beta:
                         all_metrics['beta'] = beta
             except Exception as e:
-                logger.error(f"❌ CLEAN: Beta extraction failed: {e}")
+                logger.error(f"CLEAN: Beta extraction failed: {e}")
             
             # CLEAN METHOD 4: Get Dividend Yield
             try:
@@ -454,7 +454,7 @@ class EnhancedDataProvider:
                 if div_response:
                     # Look for explicit "no dividend" or "0" responses
                     if any(phrase in div_response.lower() for phrase in ['does not pay', 'no dividend', 'not pay', 'doesn\'t pay']):
-                        logger.info(f"✅ CLEAN: {ticker} does not pay dividends (growth stock)")
+                        logger.info(f"CLEAN: {ticker} does not pay dividends (growth stock)")
                         all_metrics['dividend_yield'] = None  # Explicitly no dividend
                     elif 'unknown' not in div_response.lower():
                         div_match = re.search(r'([\d.]+)', div_response)
@@ -463,16 +463,16 @@ class EnhancedDataProvider:
                                 div_yield = float(div_match.group(1))
                                 if 0 < div_yield <= 20:  # Only accept positive yields up to 20%
                                     all_metrics['dividend_yield'] = div_yield / 100  # Convert to decimal
-                                    logger.info(f"✅ CLEAN: Extracted dividend yield: {div_yield}%")
+                                    logger.info(f"CLEAN: Extracted dividend yield: {div_yield}%")
                                 elif div_yield == 0:
-                                    logger.info(f"✅ CLEAN: {ticker} confirmed 0% dividend yield")
+                                    logger.info(f"CLEAN: {ticker} confirmed 0% dividend yield")
                                     all_metrics['dividend_yield'] = None  # No dividend
                             except ValueError:
                                 pass
                     else:
-                        logger.warning(f"⚠️ CLEAN: Perplexity uncertain about dividend yield for {ticker}")
+                        logger.warning(f"CLEAN: Perplexity uncertain about dividend yield for {ticker}")
             except Exception as e:
-                logger.error(f"❌ CLEAN: Dividend yield extraction failed: {e}")
+                logger.error(f"CLEAN: Dividend yield extraction failed: {e}")
             
             # CLEAN METHOD 5: Get EPS (Earnings Per Share)
             if not is_etf:
@@ -499,24 +499,24 @@ class EnhancedDataProvider:
                                 eps = float(eps_match.group(1))
                                 if -100 <= eps <= 500:  # Reasonable EPS range
                                     all_metrics['eps'] = eps
-                                    logger.info(f"✅ CLEAN: Extracted EPS: ${eps}")
+                                    logger.info(f"CLEAN: Extracted EPS: ${eps}")
                             except ValueError:
                                 pass
                 except Exception as e:
-                    logger.error(f"❌ CLEAN: EPS extraction failed: {e}")
+                    logger.error(f"CLEAN: EPS extraction failed: {e}")
             
             # CLEAN METHOD 6: Get 52-Week Range (with triple verification)
             try:
-                logger.info(f"🔍 Getting verified 52-week range for {ticker}")
+                logger.info(f"Getting verified 52-week range for {ticker}")
                 week_52_data = self._get_verified_52_week_range(ticker, perplexity_key)
                 if week_52_data:
                     all_metrics['week_52_low'] = week_52_data['low']
                     all_metrics['week_52_high'] = week_52_data['high']
-                    logger.info(f"✅ CLEAN: Verified 52-week range: ${week_52_data['low']:.2f} - ${week_52_data['high']:.2f}")
+                    logger.info(f"CLEAN: Verified 52-week range: ${week_52_data['low']:.2f} - ${week_52_data['high']:.2f}")
                 else:
-                    logger.warning(f"❌ CLEAN: Could not verify 52-week range for {ticker}")
+                    logger.warning(f"CLEAN: Could not verify 52-week range for {ticker}")
             except Exception as e:
-                logger.error(f"❌ CLEAN: 52-week range extraction failed: {e}")
+                logger.error(f"CLEAN: 52-week range extraction failed: {e}")
             
             # CLEAN METHOD 7: Get Market Cap
             try:
@@ -542,11 +542,11 @@ class EnhancedDataProvider:
                             mcap_billions = float(mcap_match.group(1))
                             if 0.001 <= mcap_billions <= 10000:  # Reasonable market cap range
                                 all_metrics['market_cap'] = mcap_billions * 1e9  # Convert to actual number
-                                logger.info(f"✅ CLEAN: Extracted market cap: ${mcap_billions}B")
+                                logger.info(f"CLEAN: Extracted market cap: ${mcap_billions}B")
                         except ValueError:
                             pass
             except Exception as e:
-                logger.error(f"❌ CLEAN: Market cap extraction failed: {e}")
+                logger.error(f"CLEAN: Market cap extraction failed: {e}")
             
             # CLEAN METHOD 8: Get Description - Simple
             try:
@@ -563,9 +563,9 @@ class EnhancedDataProvider:
                 if desc_response and len(desc_response) > 10:
                     all_metrics['description'] = desc_response.strip()
                     all_metrics['sector'] = "Technology"  # Default for now
-                    logger.info(f"✅ CLEAN: Extracted description")
+                    logger.info(f"CLEAN: Extracted description")
             except Exception as e:
-                logger.error(f"❌ CLEAN: Description extraction failed: {e}")
+                logger.error(f"CLEAN: Description extraction failed: {e}")
             
             # CLEAN METHOD 9: Get Volatility - Specific Risk Assessment
             try:
@@ -610,19 +610,19 @@ class EnhancedDataProvider:
                                 
                                 all_metrics['volatility'] = volatility
                                 all_metrics['volatility_score'] = vol_score
-                                logger.info(f"✅ CLEAN: Extracted volatility score: {vol_score}/100 (annual vol: {volatility:.2f})")
+                                logger.info(f"CLEAN: Extracted volatility score: {vol_score}/100 (annual vol: {volatility:.2f})")
                         except ValueError:
                             pass
             except Exception as e:
-                logger.error(f"❌ CLEAN: Volatility extraction failed: {e}")
+                logger.error(f"CLEAN: Volatility extraction failed: {e}")
                 
-            logger.info(f"🎯 CLEAN: All metrics collected for {ticker}: {all_metrics}")
+            logger.info(f"CLEAN: All metrics collected for {ticker}: {all_metrics}")
             
             # CRITICAL DEBUG: Make sure we're returning the right data
             if not all_metrics:
-                logger.error(f"❌ NO CLEAN METRICS COLLECTED for {ticker}!")
+                logger.error(f"NO CLEAN METRICS COLLECTED for {ticker}!")
             else:
-                logger.info(f"✅ CLEAN: RETURNING {len(all_metrics)} metrics for {ticker}")
+                logger.info(f"CLEAN: RETURNING {len(all_metrics)} metrics for {ticker}")
                 for key, value in all_metrics.items():
                     logger.info(f"   → CLEAN: {key}: {value} (type: {type(value).__name__})")
             
@@ -677,7 +677,7 @@ class EnhancedDataProvider:
                         
                         # Note: 52-week range is handled by separate method _get_polygon_52_week_range
                         
-                        logger.info(f"✅ Polygon: Got price ${metrics.get('price')} for {ticker}")
+                        logger.info(f"Polygon: Got price ${metrics.get('price')} for {ticker}")
             except Exception as e:
                 logger.warning(f"Polygon price fetch failed for {ticker}: {e}")
             
@@ -706,7 +706,7 @@ class EnhancedDataProvider:
                             if 'price' in metrics and 'eps' in metrics and metrics['eps'] > 0:
                                 metrics['pe_ratio'] = metrics['price'] / metrics['eps']
                             
-                            logger.info(f"✅ Polygon: Got EPS ${metrics.get('eps')} for {ticker}")
+                            logger.info(f"Polygon: Got EPS ${metrics.get('eps')} for {ticker}")
                             
                 except Exception as e:
                     logger.warning(f"Polygon financials fetch failed for {ticker}: {e}")
@@ -758,7 +758,7 @@ class EnhancedDataProvider:
             # Method 1: Direct dividendYield field
             if 'dividendYield' in info and info['dividendYield'] is not None and info['dividendYield'] > 0:
                 dividend_yield = info['dividendYield']
-                logger.info(f"✅ yfinance: Got dividend yield from dividendYield field: {dividend_yield*100:.2f}%")
+                logger.info(f"yfinance: Got dividend yield from dividendYield field: {dividend_yield*100:.2f}%")
             
             # Method 2: Calculate from dividendRate and price
             elif 'dividendRate' in info and info['dividendRate'] is not None and info['dividendRate'] > 0:
@@ -767,7 +767,7 @@ class EnhancedDataProvider:
                     price = info.get('currentPrice') or info.get('regularMarketPrice')
                 if price and price > 0:
                     dividend_yield = info['dividendRate'] / price
-                    logger.info(f"✅ yfinance: Calculated dividend yield from dividendRate: {dividend_yield*100:.2f}%")
+                    logger.info(f"yfinance: Calculated dividend yield from dividendRate: {dividend_yield*100:.2f}%")
             
             # Method 3: Get trailing annual dividend from history
             if dividend_yield is None or dividend_yield == 0:
@@ -788,9 +788,9 @@ class EnhancedDataProvider:
                             
                             if price and price > 0 and annual_dividend > 0:
                                 dividend_yield = annual_dividend / price
-                                logger.info(f"✅ yfinance: Calculated dividend yield from history: {dividend_yield*100:.2f}% (${annual_dividend:.2f} annual)")
+                                logger.info(f"yfinance: Calculated dividend yield from history: {dividend_yield*100:.2f}% (${annual_dividend:.2f} annual)")
                 except Exception as e:
-                    logger.warning(f"⚠️ yfinance: Could not calculate dividend from history: {e}")
+                    logger.warning(f"yfinance: Could not calculate dividend from history: {e}")
             
             if dividend_yield is not None and dividend_yield > 0:
                 metrics['dividend_yield'] = dividend_yield
@@ -807,7 +807,7 @@ class EnhancedDataProvider:
             if 'sector' in info:
                 metrics['sector'] = info['sector']
             
-            logger.info(f"✅ yfinance: Got {len(metrics)} metrics for {ticker}")
+            logger.info(f"yfinance: Got {len(metrics)} metrics for {ticker}")
             return metrics
             
         except Exception as e:
@@ -848,11 +848,11 @@ class EnhancedDataProvider:
                     # Validate the data makes sense
                     if self._validate_metric(metric, value, ticker):
                         combined[metric] = value
-                        logger.info(f"✅ Using {source} for {metric}: {value}")
+                        logger.info(f"Using {source} for {metric}: {value}")
                         break
             else:
                 # No valid data found for this metric
-                logger.warning(f"❌ No valid {metric} data found for {ticker}")
+                logger.warning(f"No valid {metric} data found for {ticker}")
         
         # Cross-validate related metrics
         self._cross_validate_metrics(combined, ticker)
@@ -888,7 +888,7 @@ class EnhancedDataProvider:
             return True  # Default to true for other metrics
             
         except (ValueError, TypeError):
-            logger.warning(f"❌ Invalid {metric} value for {ticker}: {value}")
+            logger.warning(f"Invalid {metric} value for {ticker}: {value}")
             return False
     
     def _cross_validate_metrics(self, metrics: Dict, ticker: str):
@@ -897,23 +897,23 @@ class EnhancedDataProvider:
         if 'pe_ratio' in metrics and 'price' in metrics and 'eps' in metrics:
             calculated_pe = metrics['price'] / metrics['eps'] if metrics['eps'] != 0 else None
             if calculated_pe and abs(calculated_pe - metrics['pe_ratio']) / calculated_pe > 0.5:
-                logger.warning(f"⚠️ P/E inconsistency for {ticker}: reported {metrics['pe_ratio']:.2f} vs calculated {calculated_pe:.2f}")
+                logger.warning(f"P/E inconsistency for {ticker}: reported {metrics['pe_ratio']:.2f} vs calculated {calculated_pe:.2f}")
         
         # Validate 52-week range
         if 'week_52_low' in metrics and 'week_52_high' in metrics:
             if metrics['week_52_low'] >= metrics['week_52_high']:
-                logger.warning(f"⚠️ Invalid 52-week range for {ticker}: {metrics['week_52_low']} >= {metrics['week_52_high']}")
+                logger.warning(f"Invalid 52-week range for {ticker}: {metrics['week_52_low']} >= {metrics['week_52_high']}")
                 del metrics['week_52_low']
                 del metrics['week_52_high']
         
         # Validate price within 52-week range
         if 'price' in metrics and 'week_52_low' in metrics and 'week_52_high' in metrics:
             if not (metrics['week_52_low'] <= metrics['price'] <= metrics['week_52_high'] * 1.1):  # Allow 10% above high
-                logger.warning(f"⚠️ Price outside 52-week range for {ticker}: ${metrics['price']} not in [${metrics['week_52_low']}, ${metrics['week_52_high']}]")
+                logger.warning(f"Price outside 52-week range for {ticker}: ${metrics['price']} not in [${metrics['week_52_low']}, ${metrics['week_52_high']}]")
     
     def get_news_with_sources(self, ticker: str, limit: int = 10) -> List[Dict]:
         """Get recent news articles with sources and links using multiple strategies."""
-        logger.info(f"🔍 Getting specific news for {ticker}")
+        logger.info(f"Getting specific news for {ticker}")
         
         # Try multiple approaches to get the best, most specific news
         news_articles = []
@@ -936,7 +936,7 @@ class EnhancedDataProvider:
         # Deduplicate and sort by relevance
         news_articles = self._deduplicate_and_rank_news(news_articles, ticker)
         
-        logger.info(f"✅ Retrieved {len(news_articles)} specific news articles for {ticker}")
+        logger.info(f"Retrieved {len(news_articles)} specific news articles for {ticker}")
         return news_articles[:limit]
     
     def _get_perplexity_news(self, ticker: str, limit: int) -> List[Dict]:
@@ -950,7 +950,7 @@ class EnhancedDataProvider:
             
             # Enhanced query with EARNINGS PRIORITY for better detection
             news_query = f"""
-            🚨 ENHANCED EARNINGS DETECTION + News Search for {ticker} ({company_name}) - Past 14 days:
+            ENHANCED EARNINGS DETECTION + News Search for {ticker} ({company_name}) - Past 14 days:
             
             **ABSOLUTE PRIORITY #1 - EARNINGS SEARCH:**
             Search comprehensively for earnings/financial reports using ALL these patterns:
@@ -1406,7 +1406,7 @@ class EnhancedDataProvider:
                 }
                 articles.append(article)
             
-            logger.info(f"✅ Yahoo Finance: Got {len(articles)} articles for {ticker}")
+            logger.info(f"Yahoo Finance: Got {len(articles)} articles for {ticker}")
             return articles
             
         except Exception as e:
@@ -1455,7 +1455,7 @@ class EnhancedDataProvider:
             
             # Return up to the requested limit
             articles = news_templates[:min(limit, len(news_templates))]
-            logger.info(f"✅ Web fallback: Generated {len(articles)} articles for {ticker}")
+            logger.info(f"Web fallback: Generated {len(articles)} articles for {ticker}")
             
             return articles
             
@@ -1533,17 +1533,17 @@ class EnhancedDataProvider:
                 data = response.json()
                 content = data['choices'][0]['message']['content']
                 if content:
-                    logger.info(f"📥 CLEAN: Perplexity response: {content[:100]}...")
+                    logger.info(f"CLEAN: Perplexity response: {content[:100]}...")
                     return content
                 else:
-                    logger.error(f"❌ CLEAN: Perplexity returned empty content")
+                    logger.error(f"CLEAN: Perplexity returned empty content")
                     return "No content returned"
             else:
-                logger.error(f"❌ CLEAN: Perplexity API error: {response.status_code}")
+                logger.error(f"CLEAN: Perplexity API error: {response.status_code}")
                 return None
                 
         except Exception as e:
-            logger.error(f"❌ CLEAN: Perplexity query failed: {e}")
+            logger.error(f"CLEAN: Perplexity query failed: {e}")
             return None
     
     def _query_perplexity_focused(self, query: str, ticker: str, query_type: str, is_etf: bool = False) -> Dict[str, Any]:
@@ -1576,7 +1576,7 @@ class EnhancedDataProvider:
                 'temperature': 0.1
             }
             
-            logger.info(f"🚀 Making focused Perplexity query for {ticker} ({query_type})")
+            logger.info(f"Making focused Perplexity query for {ticker} ({query_type})")
             response = requests.post(
                 'https://api.perplexity.ai/chat/completions',
                 headers=headers,
@@ -1587,11 +1587,11 @@ class EnhancedDataProvider:
             if response.status_code == 200:
                 data = response.json()
                 analysis_text = data['choices'][0]['message']['content']
-                logger.info(f"📥 Focused Perplexity response for {ticker} ({query_type}): {analysis_text[:200]}...")
+                logger.info(f"Focused Perplexity response for {ticker} ({query_type}): {analysis_text[:200]}...")
                 
                 # Extract specific metrics based on query type
                 extracted = self._extract_focused_metrics(analysis_text, query_type, is_etf)
-                logger.info(f"🎯 Extracted from {query_type} query: {extracted}")
+                logger.info(f"Extracted from {query_type} query: {extracted}")
                 return extracted
             else:
                 logger.warning(f"Perplexity focused API error {response.status_code} for {ticker} ({query_type})")
@@ -1615,20 +1615,20 @@ class EnhancedDataProvider:
                 r'([\d,]+\.?\d*)',     # Just numbers
             ]
             
-            logger.info(f"🔍 Searching for price in simple response: {text}")
+            logger.info(f"Searching for price in simple response: {text}")
             for i, pattern in enumerate(price_patterns):
                 match = re.search(pattern, text.strip(), re.IGNORECASE)
-                logger.info(f"🔍 Price pattern {i+1}: {'MATCH' if match else 'NO MATCH'}")
+                logger.info(f"Price pattern {i+1}: {'MATCH' if match else 'NO MATCH'}")
                 if match:
                     try:
                         price_str = match.group(1).replace(',', '')
                         price_val = float(price_str)
                         if 0.01 <= price_val <= 10000:  # Reasonable price range
                             metrics['price'] = price_val
-                            logger.info(f"✅ Extracted price: ${metrics['price']} from simple response")
+                            logger.info(f"Extracted price: ${metrics['price']} from simple response")
                             break
                     except ValueError as e:
-                        logger.warning(f"⚠️ Failed to convert price '{match.group(1)}': {e}")
+                        logger.warning(f"Failed to convert price '{match.group(1)}': {e}")
                         continue
         
         elif query_type == 'beta':
@@ -1646,19 +1646,19 @@ class EnhancedDataProvider:
                 r'(?:approximately|around)\s+([\d.]+)',
             ]
             
-            logger.info(f"🔍 Searching for beta in: {text[:200]}...")
+            logger.info(f"Searching for beta in: {text[:200]}...")
             for i, pattern in enumerate(beta_patterns):
                 match = re.search(pattern, text, re.IGNORECASE)
-                logger.info(f"🔍 Beta pattern {i+1}: {'MATCH' if match else 'NO MATCH'}")
+                logger.info(f"Beta pattern {i+1}: {'MATCH' if match else 'NO MATCH'}")
                 if match:
                     try:
                         beta_val = float(match.group(1))
                         if -5.0 <= beta_val <= 5.0:  # Reasonable beta range
                             metrics['beta'] = beta_val
-                            logger.info(f"✅ Extracted beta: {metrics['beta']} using pattern: {pattern}")
+                            logger.info(f"Extracted beta: {metrics['beta']} using pattern: {pattern}")
                             break
                     except ValueError as e:
-                        logger.warning(f"⚠️ Failed to convert beta '{match.group(1)}': {e}")
+                        logger.warning(f"Failed to convert beta '{match.group(1)}': {e}")
                         continue
         
         elif query_type == 'pe' and not is_etf:
@@ -1679,7 +1679,7 @@ class EnhancedDataProvider:
                         pe_value = float(match.group(1))
                         if 5 <= pe_value <= 200:  # Reasonable range
                             metrics['pe_ratio'] = pe_value
-                            logger.info(f"✅ Extracted P/E ratio: {metrics['pe_ratio']}")
+                            logger.info(f"Extracted P/E ratio: {metrics['pe_ratio']}")
                             break
                     except ValueError:
                         continue
@@ -1698,7 +1698,7 @@ class EnhancedDataProvider:
                     desc = match.group(1).strip()
                     if len(desc) > 10:  # Make sure it's substantial
                         metrics['description'] = desc
-                        logger.info(f"✅ Extracted description: {desc[:50]}...")
+                        logger.info(f"Extracted description: {desc[:50]}...")
                         break
             
             # Extract sector
@@ -1722,7 +1722,7 @@ class EnhancedDataProvider:
                     sector = re.sub(r'\s+', ' ', sector)  # Remove extra spaces
                     if len(sector) > 3 and not sector.isspace():
                         metrics['sector'] = sector
-                        logger.info(f"✅ Extracted sector: {sector}")
+                        logger.info(f"Extracted sector: {sector}")
                         break
         
         return metrics
@@ -1732,7 +1732,7 @@ class EnhancedDataProvider:
         import re
         
         metrics = {}
-        logger.info(f"🔍 Extracting comprehensive metrics from: {text[:200]}...")
+        logger.info(f"Extracting comprehensive metrics from: {text[:200]}...")
         
         # Extract price
         price_patterns = [
@@ -1744,18 +1744,18 @@ class EnhancedDataProvider:
             r'\$?([\d,]+\.?\d*)\s*\(closing price',  # "254.56 (closing price"
         ]
         
-        logger.info(f"🔍 SEARCHING FOR PRICE in text...")
+        logger.info(f"SEARCHING FOR PRICE in text...")
         for i, pattern in enumerate(price_patterns):
             match = re.search(pattern, text, re.IGNORECASE)
-            logger.info(f"🔍 Price pattern {i+1}: {'MATCH' if match else 'NO MATCH'}")
+            logger.info(f"Price pattern {i+1}: {'MATCH' if match else 'NO MATCH'}")
             if match:
                 try:
                     price_str = match.group(1).replace(',', '')
                     metrics['price'] = float(price_str)
-                    logger.info(f"✅ Extracted price: ${metrics['price']} from pattern: {pattern}")
+                    logger.info(f"Extracted price: ${metrics['price']} from pattern: {pattern}")
                     break
                 except ValueError as e:
-                    logger.warning(f"⚠️ Failed to convert price '{match.group(1)}' to float: {e}")
+                    logger.warning(f"Failed to convert price '{match.group(1)}' to float: {e}")
                     continue
         
         # Extract P/E ratio (skip for ETFs)
@@ -1773,27 +1773,27 @@ class EnhancedDataProvider:
                 r'([\d.]+)x?\s*TTM P/E',                      # "37.7x TTM P/E" format
             ]
             
-            logger.info(f"🔍 DEBUG - Searching for P/E ratio in text: {text}")
+            logger.info(f"DEBUG - Searching for P/E ratio in text: {text}")
             
             for i, pattern in enumerate(pe_patterns):
                 match = re.search(pattern, text, re.IGNORECASE)
-                logger.info(f"🔍 DEBUG - Pattern {i+1} '{pattern}': {'MATCH' if match else 'NO MATCH'}")
+                logger.info(f"DEBUG - Pattern {i+1} '{pattern}': {'MATCH' if match else 'NO MATCH'}")
                 if match:
                     try:
                         extracted_pe = float(match.group(1))
                         metrics['pe_ratio'] = extracted_pe
-                        logger.info(f"✅ EXTRACTED P/E ratio: {metrics['pe_ratio']} using pattern: {pattern}")
-                        logger.info(f"🔍 DEBUG - Match found: '{match.group(0)}' -> extracted: {extracted_pe}")
+                        logger.info(f"EXTRACTED P/E ratio: {metrics['pe_ratio']} using pattern: {pattern}")
+                        logger.info(f"DEBUG - Match found: '{match.group(0)}' -> extracted: {extracted_pe}")
                         break
                     except ValueError as e:
-                        logger.warning(f"⚠️ Failed to convert P/E match '{match.group(1)}' to float: {e}")
+                        logger.warning(f"Failed to convert P/E match '{match.group(1)}' to float: {e}")
                         continue
             
             if 'pe_ratio' not in metrics:
-                logger.warning(f"❌ NO P/E RATIO FOUND in Perplexity text")
+                logger.warning(f"NO P/E RATIO FOUND in Perplexity text")
                 # Try to find "not available" or "not provided" statements
                 if 'not explicitly provided' in text.lower() or 'not available' in text.lower():
-                    logger.info("🔍 Perplexity says P/E ratio data is not available in search results")
+                    logger.info("Perplexity says P/E ratio data is not available in search results")
         
         # Extract Beta
         beta_patterns = [
@@ -1802,22 +1802,22 @@ class EnhancedDataProvider:
             r'market\s+risk[:\s]*([\d.]+)'
         ]
         
-        logger.info(f"🔍 SEARCHING FOR BETA in text...")
+        logger.info(f"SEARCHING FOR BETA in text...")
         for i, pattern in enumerate(beta_patterns):
             match = re.search(pattern, text, re.IGNORECASE)
-            logger.info(f"🔍 Beta pattern {i+1}: {'MATCH' if match else 'NO MATCH'}")
+            logger.info(f"Beta pattern {i+1}: {'MATCH' if match else 'NO MATCH'}")
             if match:
                 try:
                     metrics['beta'] = float(match.group(1))
-                    logger.info(f"✅ Extracted beta: {metrics['beta']}")
+                    logger.info(f"Extracted beta: {metrics['beta']}")
                     break
                 except ValueError:
                     continue
         
         if 'beta' not in metrics:
-            logger.warning(f"❌ NO BETA FOUND in Perplexity text")
+            logger.warning(f"NO BETA FOUND in Perplexity text")
             if 'not available' in text.lower() or 'not provided' in text.lower():
-                logger.info("🔍 Perplexity says Beta data is not available")
+                logger.info("Perplexity says Beta data is not available")
         
         # Extract market cap
         market_cap_patterns = [
@@ -1832,7 +1832,7 @@ class EnhancedDataProvider:
                 try:
                     cap_str = match.group(1).replace(',', '')
                     metrics['market_cap'] = float(cap_str) * 1000  # Convert billions to actual value
-                    logger.info(f"✅ Extracted market cap: ${metrics['market_cap']}B")
+                    logger.info(f"Extracted market cap: ${metrics['market_cap']}B")
                     break
                 except ValueError:
                     continue
@@ -1846,15 +1846,15 @@ class EnhancedDataProvider:
             r'company\s+(?:that\s+)?([^.]*\.)',
         ]
         
-        logger.info(f"🔍 SEARCHING FOR DESCRIPTION in: {text[:500]}...")
+        logger.info(f"SEARCHING FOR DESCRIPTION in: {text[:500]}...")
         for i, pattern in enumerate(description_patterns):
             match = re.search(pattern, text, re.IGNORECASE)
-            logger.info(f"🔍 Description pattern {i+1}: {'MATCH' if match else 'NO MATCH'}")
+            logger.info(f"Description pattern {i+1}: {'MATCH' if match else 'NO MATCH'}")
             if match:
                 description = match.group(1).strip()
                 if len(description) > 20:  # Only use substantial descriptions
                     metrics['description'] = description
-                    logger.info(f"✅ Extracted description: {description[:50]}...")
+                    logger.info(f"Extracted description: {description[:50]}...")
                     break
         
         # Extract sector/industry
@@ -1871,7 +1871,7 @@ class EnhancedDataProvider:
                 sector = match.group(1).strip()
                 if len(sector) > 3:  # Only use meaningful sectors
                     metrics['sector'] = sector.title()
-                    logger.info(f"✅ Extracted sector: {metrics['sector']}")
+                    logger.info(f"Extracted sector: {metrics['sector']}")
                     break
         
         # Extract exchange
@@ -1886,10 +1886,10 @@ class EnhancedDataProvider:
             if match:
                 exchange = match.group(1).upper()
                 metrics['exchange'] = exchange
-                logger.info(f"✅ Extracted exchange: {metrics['exchange']}")
+                logger.info(f"Extracted exchange: {metrics['exchange']}")
                 break
         
-        logger.info(f"🎯 Final comprehensive Perplexity metrics: {metrics}")
+        logger.info(f"Final comprehensive Perplexity metrics: {metrics}")
         return metrics
     
     def _extract_metrics_from_perplexity(self, text: str, is_etf: bool = False) -> Dict[str, Any]:
@@ -1957,7 +1957,7 @@ class EnhancedDataProvider:
     
     def _get_growth_rates_from_perplexity(self, ticker: str) -> Dict[str, Any]:
         """Get earnings and revenue growth rates from Perplexity AI."""
-        logger.info(f"📈 Fetching growth rates for {ticker} from Perplexity")
+        logger.info(f"Fetching growth rates for {ticker} from Perplexity")
         
         try:
             perplexity_key = os.getenv('PERPLEXITY_API_KEY')
@@ -2001,7 +2001,7 @@ class EnhancedDataProvider:
             if response.status_code == 200:
                 result = response.json()
                 content = result['choices'][0]['message']['content']
-                logger.info(f"📈 Perplexity response for {ticker} growth rates: {content}")
+                logger.info(f"Perplexity response for {ticker} growth rates: {content}")
                 
                 # Parse the response
                 import re
@@ -2021,7 +2021,7 @@ class EnhancedDataProvider:
                         if revenue_growth is not None:
                             revenue_growth = float(revenue_growth)
                         
-                        logger.info(f"✅ Parsed growth rates for {ticker}: EPS={earnings_growth}, Revenue={revenue_growth}")
+                        logger.info(f"Parsed growth rates for {ticker}: EPS={earnings_growth}, Revenue={revenue_growth}")
                         return {
                             'earnings_growth': earnings_growth,
                             'revenue_growth': revenue_growth
@@ -2036,7 +2036,7 @@ class EnhancedDataProvider:
                     try:
                         earnings_pct = float(numbers[0].replace('%', '').strip()) / 100.0
                         revenue_pct = float(numbers[1].replace('%', '').strip()) / 100.0
-                        logger.info(f"✅ Extracted growth rates from percentages for {ticker}: EPS={earnings_pct}, Revenue={revenue_pct}")
+                        logger.info(f"Extracted growth rates from percentages for {ticker}: EPS={earnings_pct}, Revenue={revenue_pct}")
                         return {
                             'earnings_growth': earnings_pct,
                             'revenue_growth': revenue_pct
@@ -2060,7 +2060,7 @@ class EnhancedDataProvider:
         Get comprehensive stock/ETF data using Polygon, Perplexity, and intelligent analysis.
         Handles ETFs differently from individual stocks.
         """
-        logger.info(f"🚀 GETTING COMPREHENSIVE DATA FOR {ticker}")
+        logger.info(f"GETTING COMPREHENSIVE DATA FOR {ticker}")
         
         # Detect if ETF
         is_etf = self._is_etf(ticker)
@@ -2074,17 +2074,17 @@ class EnhancedDataProvider:
         }
         
         # SKIP POLYGON.IO - Using ONLY Perplexity as requested
-        logger.info(f"🔍 SKIPPING Polygon.io - Using PERPLEXITY ONLY for {ticker}")
+        logger.info(f"SKIPPING Polygon.io - Using PERPLEXITY ONLY for {ticker}")
         
         # 1. Get Perplexity real-time analysis - ONLY SOURCE
-        logger.info(f"🔍 FETCHING PERPLEXITY ANALYSIS FOR {ticker}")
+        logger.info(f"FETCHING PERPLEXITY ANALYSIS FOR {ticker}")
         perplexity_analysis = self._get_perplexity_analysis(ticker, is_etf)
         if perplexity_analysis:
             comprehensive_data['perplexity_analysis'] = perplexity_analysis
             comprehensive_data['data_sources'].append('perplexity_analysis')
-            logger.info(f"✅ PERPLEXITY ANALYSIS RETRIEVED FOR {ticker}")
+            logger.info(f"PERPLEXITY ANALYSIS RETRIEVED FOR {ticker}")
         else:
-            logger.warning(f"❌ PERPLEXITY ANALYSIS FAILED FOR {ticker}")
+            logger.warning(f"PERPLEXITY ANALYSIS FAILED FOR {ticker}")
         
         # 3. Extract and synthesize key metrics
         comprehensive_data['key_metrics'] = self._extract_key_metrics(
@@ -2102,15 +2102,15 @@ class EnhancedDataProvider:
     def _extract_key_metrics(self, data: Dict[str, Any], is_etf: bool) -> Dict[str, Any]:
         """Extract key financial metrics with PERPLEXITY as primary source."""
         ticker = data.get('ticker', 'UNKNOWN')
-        logger.info(f"🎯 === EXTRACTING KEY METRICS FOR {ticker} ===")
+        logger.info(f"=== EXTRACTING KEY METRICS FOR {ticker} ===")
         
         # Use ONLY Perplexity as the single source of truth - NO OTHER SOURCES
-        logger.info(f"🔍 === USING PERPLEXITY AS ONLY SOURCE FOR {ticker} ===")
+        logger.info(f"=== USING PERPLEXITY AS ONLY SOURCE FOR {ticker} ===")
         
         # Get comprehensive metrics using multi-source validation
-        logger.info(f"🔍 Getting multi-source comprehensive metrics for {ticker}")
+        logger.info(f"Getting multi-source comprehensive metrics for {ticker}")
         comprehensive_metrics = self.get_comprehensive_metrics(ticker, is_etf)
-        logger.info(f"� Multi-source metrics: {comprehensive_metrics}")
+        logger.info(f"Multi-source metrics: {comprehensive_metrics}")
         
         # Build metrics using multi-source validated data
         metrics = {
@@ -2133,9 +2133,9 @@ class EnhancedDataProvider:
             growth_rates = self._get_growth_rates_from_perplexity(ticker)
             metrics['earnings_growth'] = growth_rates.get('earnings_growth')
             metrics['revenue_growth'] = growth_rates.get('revenue_growth')
-            logger.info(f"📈 Growth rates for {ticker}: EPS={growth_rates.get('earnings_growth')}, Revenue={growth_rates.get('revenue_growth')}")
+            logger.info(f"Growth rates for {ticker}: EPS={growth_rates.get('earnings_growth')}, Revenue={growth_rates.get('revenue_growth')}")
         
-        logger.info(f"✅ MULTI-SOURCE VALIDATED METRICS FOR {ticker}: Price=${metrics.get('price')}, P/E={metrics.get('pe_ratio')}, Beta={metrics.get('beta')}")
+        logger.info(f"MULTI-SOURCE VALIDATED METRICS FOR {ticker}: Price=${metrics.get('price')}, P/E={metrics.get('pe_ratio')}, Beta={metrics.get('beta')}")
         
         # ETF-specific handling - ensure ETFs don't have P/E ratios or beta
         if is_etf:
@@ -2143,12 +2143,12 @@ class EnhancedDataProvider:
             metrics['beta'] = None
             metrics['risk_level'] = 'low-moderate'
         
-        logger.info(f"🎯 FINAL METRICS FOR {ticker}: {metrics}")
+        logger.info(f"FINAL METRICS FOR {ticker}: {metrics}")
         return metrics
     
     def _get_guaranteed_openai_metrics(self, ticker: str, is_etf: bool = False) -> Dict[str, Any]:
         """Get guaranteed financial metrics from OpenAI - never returns None values."""
-        logger.info(f"🤖 === CALLING OPENAI FOR {ticker} ===")
+        logger.info(f"=== CALLING OPENAI FOR {ticker} ===")
         try:
             import openai
             from openai import OpenAI
@@ -2156,10 +2156,10 @@ class EnhancedDataProvider:
             # Initialize OpenAI client
             openai_key = os.getenv('OPENAI_API_KEY')
             if not openai_key:
-                logger.error("❌ OpenAI API key not found - using hardcoded values")
+                logger.error("OpenAI API key not found - using hardcoded values")
                 return self._get_hardcoded_metrics(ticker, is_etf)
             
-            logger.info(f"✅ OpenAI API key found, initializing client for {ticker}")
+            logger.info(f"OpenAI API key found, initializing client for {ticker}")
             
             client = OpenAI(api_key=openai_key)
             
@@ -2202,11 +2202,11 @@ Example: {{"price": 225.50, "pe_ratio": 28.5, "beta": 1.2, "market_cap": 2800, "
             
             response_text = response.choices[0].message.content
             if not response_text:
-                logger.error(f"❌ OpenAI returned empty content for {ticker}")
+                logger.error(f"OpenAI returned empty content for {ticker}")
                 return self._get_hardcoded_metrics(ticker, is_etf)
             
             response_text = response_text.strip()
-            logger.info(f"🤖 OpenAI response for {ticker}: {response_text}")
+            logger.info(f"OpenAI response for {ticker}: {response_text}")
             
             # Parse JSON response
             import json
@@ -2230,16 +2230,16 @@ Example: {{"price": 225.50, "pe_ratio": 28.5, "beta": 1.2, "market_cap": 2800, "
                     except (ValueError, TypeError):
                         pass
             
-            logger.info(f"✅ OpenAI provided metrics for {ticker}: {validated}")
+            logger.info(f"OpenAI provided metrics for {ticker}: {validated}")
             return validated
             
         except Exception as e:
-            logger.error(f"❌ OpenAI metrics failed for {ticker}: {e}")
+            logger.error(f"OpenAI metrics failed for {ticker}: {e}")
             return self._get_hardcoded_metrics(ticker, is_etf)
     
     def _get_hardcoded_metrics(self, ticker: str, is_etf: bool = False) -> Dict[str, Any]:
         """Hardcoded realistic metrics as absolute fallback."""
-        logger.warning(f"🔧 Using hardcoded metrics for {ticker}")
+        logger.warning(f"Using hardcoded metrics for {ticker}")
         
         # Realistic values for major stocks/ETFs
         hardcoded_data = {
@@ -2278,13 +2278,13 @@ Example: {{"price": 225.50, "pe_ratio": 28.5, "beta": 1.2, "market_cap": 2800, "
                 return {}
             
             client = OpenAI(api_key=openai_key)
-            logger.info(f"🔧 OpenAI client initialized successfully for {ticker}")
+            logger.info(f"OpenAI client initialized successfully for {ticker}")
             
             # Create intelligent prompt based on missing metrics
             current_date = "September 29, 2024"  # Use realistic date
-            logger.info(f"📅 Using current date: {current_date}")
+            logger.info(f"Using current date: {current_date}")
             metrics_request = ", ".join(missing_metrics)
-            logger.info(f"📊 Missing metrics to fetch: {metrics_request}")
+            logger.info(f"Missing metrics to fetch: {metrics_request}")
             
             prompt = f"""You are a financial data expert. I need realistic current financial metrics for {ticker} as of {current_date}.
 
@@ -2306,7 +2306,7 @@ Required JSON format:
 
 Example: {{"price": 150.25, "pe_ratio": 28.5, "beta": 1.2}}"""
 
-            logger.info(f"🚀 Making OpenAI API call for {ticker}...")
+            logger.info(f"Making OpenAI API call for {ticker}...")
             response = client.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[
@@ -2316,16 +2316,16 @@ Example: {{"price": 150.25, "pe_ratio": 28.5, "beta": 1.2}}"""
                 max_tokens=200,
                 temperature=0.1
             )
-            logger.info(f"✅ OpenAI API call successful for {ticker}")
+            logger.info(f"OpenAI API call successful for {ticker}")
             
             # Parse the JSON response
             response_text = response.choices[0].message.content
             if not response_text:
-                logger.error(f"❌ OpenAI returned empty content for {ticker}")
+                logger.error(f"OpenAI returned empty content for {ticker}")
                 return {}
             
             response_text = response_text.strip()
-            logger.info(f"📥 OpenAI response for {ticker}: {response_text}")
+            logger.info(f"OpenAI response for {ticker}: {response_text}")
             
             # Extract JSON from response (handle potential markdown formatting)
             import json
@@ -2339,9 +2339,9 @@ Example: {{"price": 150.25, "pe_ratio": 28.5, "beta": 1.2}}"""
                 json_text = response_text
             
             # Parse JSON
-            logger.info(f"🔍 Parsing JSON response for {ticker}: {json_text}")
+            logger.info(f"Parsing JSON response for {ticker}: {json_text}")
             metrics = json.loads(json_text)
-            logger.info(f"📊 Parsed metrics for {ticker}: {metrics}")
+            logger.info(f"Parsed metrics for {ticker}: {metrics}")
             
             # Validate and clean the metrics
             validated_metrics = {}
@@ -2349,15 +2349,15 @@ Example: {{"price": 150.25, "pe_ratio": 28.5, "beta": 1.2}}"""
                 if metric in metrics and metrics[metric] is not None:
                     try:
                         validated_metrics[metric] = float(metrics[metric])
-                        logger.info(f"✅ Added {metric} = {validated_metrics[metric]} for {ticker}")
+                        logger.info(f"Added {metric} = {validated_metrics[metric]} for {ticker}")
                     except (ValueError, TypeError):
-                        logger.warning(f"⚠️ Invalid {metric} value from OpenAI: {metrics[metric]}")
+                        logger.warning(f"Invalid {metric} value from OpenAI: {metrics[metric]}")
             
-            logger.info(f"🎯 OpenAI FINAL RESULT for {ticker}: {validated_metrics}")
+            logger.info(f"OpenAI FINAL RESULT for {ticker}: {validated_metrics}")
             return validated_metrics
             
         except Exception as e:
-            logger.error(f"❌ OpenAI metrics fallback failed for {ticker}: {e}")
+            logger.error(f"OpenAI metrics fallback failed for {ticker}: {e}")
             return {}
     
     def _generate_risk_assessment(self, data: Dict[str, Any], is_etf: bool) -> Dict[str, Any]:
@@ -2456,7 +2456,7 @@ Example: {{"price": 150.25, "pe_ratio": 28.5, "beta": 1.2}}"""
                 if df is not None and not df.empty:
                     self._record_request(source_name)
                     self._save_cache(cache_key, df)
-                    logger.info(f"✅ Got price data from {source_name} for {ticker}")
+                    logger.info(f"Got price data from {source_name} for {ticker}")
                     return df
                 
             except Exception as e:
@@ -2617,30 +2617,30 @@ Example: {{"price": 150.25, "pe_ratio": 28.5, "beta": 1.2}}"""
     
     def get_fundamentals_enhanced(self, ticker: str, cache_hours: float = 0.0) -> Dict[str, Any]:
         """Get comprehensive fundamental data using Polygon, Perplexity, and intelligent analysis."""
-        logger.info(f"� === STARTING FUNDAMENTALS RETRIEVAL FOR {ticker} ===")
+        logger.info(f"=== STARTING FUNDAMENTALS RETRIEVAL FOR {ticker} ===")
         
         # DISABLE CACHING COMPLETELY FOR DEBUGGING
         # cache_key = f"comprehensive_data_{ticker}"
         # cached = self._load_cache(cache_key, cache_hours)
         # if cached is not None:
-        #     logger.info(f"📦 Using cached data for {ticker}")
+        #     logger.info(f"Using cached data for {ticker}")
         #     return cached
         
         # Use the new comprehensive method
         try:
-            logger.info(f"🎯 STEP 1: Calling get_comprehensive_stock_data for {ticker}")
+            logger.info(f"STEP 1: Calling get_comprehensive_stock_data for {ticker}")
             comprehensive_data = self.get_comprehensive_stock_data(ticker)
-            logger.info(f"🎯 STEP 2: Comprehensive data retrieved: {comprehensive_data.keys() if comprehensive_data else 'None'}")
+            logger.info(f"STEP 2: Comprehensive data retrieved: {comprehensive_data.keys() if comprehensive_data else 'None'}")
             
             # Convert to expected format for backward compatibility
             key_metrics = comprehensive_data.get('key_metrics', {})
             
             # CRITICAL DEBUG: Check what's in key_metrics before final assembly
-            logger.info(f"🔍 CRITICAL: key_metrics before final assembly: {key_metrics}")
+            logger.info(f"CRITICAL: key_metrics before final assembly: {key_metrics}")
             price_value = key_metrics.get('price')
             pe_value = key_metrics.get('pe_ratio')
             beta_value = key_metrics.get('beta')
-            logger.info(f"🔍 CRITICAL: Extracted values - price: {price_value} (type: {type(price_value).__name__}), pe: {pe_value}, beta: {beta_value}")
+            logger.info(f"CRITICAL: Extracted values - price: {price_value} (type: {type(price_value).__name__}), pe: {pe_value}, beta: {beta_value}")
             
             fundamentals = {
                 'ticker': ticker,
@@ -2668,7 +2668,7 @@ Example: {{"price": 150.25, "pe_ratio": 28.5, "beta": 1.2}}"""
                 'source': 'comprehensive_enhanced'
             }
             
-            logger.info(f"🎯 FINAL FUNDAMENTALS STRUCTURE: {fundamentals}")
+            logger.info(f"FINAL FUNDAMENTALS STRUCTURE: {fundamentals}")
             
             # Save to cache - DISABLED FOR DEBUGGING
             # self._save_cache(cache_key, fundamentals)
@@ -2790,7 +2790,7 @@ Example: {{"price": 150.25, "pe_ratio": 28.5, "beta": 1.2}}"""
             url = f"https://api.polygon.io/v2/aggs/ticker/{ticker}/range/1/day/{start_str}/{end_str}"
             headers = {"Authorization": f"Bearer {self.polygon_key}"}
             
-            logger.info(f"🔍 Polygon: Fetching 52-week range for {ticker} ({start_str} to {end_str})")
+            logger.info(f"Polygon: Fetching 52-week range for {ticker} ({start_str} to {end_str})")
             
             response = requests.get(url, headers=headers, timeout=30)
             
@@ -2808,20 +2808,20 @@ Example: {{"price": 150.25, "pe_ratio": 28.5, "beta": 1.2}}"""
                         low = min(prices)
                         high = max(prices)
                         
-                        logger.info(f"✅ Polygon 52-week range for {ticker}: ${low:.2f} - ${high:.2f} (from {len(prices)} trading days)")
+                        logger.info(f"Polygon 52-week range for {ticker}: ${low:.2f} - ${high:.2f} (from {len(prices)} trading days)")
                         return {'low': low, 'high': high, 'source': 'polygon', 'days': len(prices)}
                     else:
-                        logger.warning(f"❌ Polygon: Insufficient data points ({len(prices)}) for {ticker}")
+                        logger.warning(f"Polygon: Insufficient data points ({len(prices)}) for {ticker}")
                         return None
                 else:
-                    logger.warning(f"❌ Polygon: No results in response for {ticker}")
+                    logger.warning(f"Polygon: No results in response for {ticker}")
                     return None
             else:
-                logger.warning(f"❌ Polygon API error {response.status_code} for {ticker}: {response.text}")
+                logger.warning(f"Polygon API error {response.status_code} for {ticker}: {response.text}")
                 return None
                 
         except Exception as e:
-            logger.error(f"❌ Polygon 52-week range failed for {ticker}: {e}")
+            logger.error(f"Polygon 52-week range failed for {ticker}: {e}")
             return None
 
     def _get_verified_52_week_range(self, ticker: str, perplexity_key: str) -> Optional[Dict[str, Any]]:
@@ -2845,11 +2845,11 @@ Example: {{"price": 150.25, "pe_ratio": 28.5, "beta": 1.2}}"""
         
         # If Polygon data is available and looks reasonable, use it directly
         if polygon_result:
-            logger.info(f"✅ Using reliable Polygon 52-week range for {ticker}: ${polygon_result['low']:.2f} - ${polygon_result['high']:.2f}")
+            logger.info(f"Using reliable Polygon 52-week range for {ticker}: ${polygon_result['low']:.2f} - ${polygon_result['high']:.2f}")
             return polygon_result
         
         # Only query Perplexity if Polygon failed
-        logger.info(f"⚠️ Polygon unavailable for {ticker}, falling back to Perplexity verification")
+        logger.info(f"Polygon unavailable for {ticker}, falling back to Perplexity verification")
         queries = [
             f"What is the exact 52-week (1 year) stock price range for {ticker}? Provide the lowest and highest prices in the past 52 weeks. Format: low-high (example: 150.25-245.80)",
             f"Give me the 52-week low and 52-week high stock prices for {ticker} over the past 1 year. Format as: [low price]-[high price]",
@@ -2858,11 +2858,11 @@ Example: {{"price": 150.25, "pe_ratio": 28.5, "beta": 1.2}}"""
         
         for i, query in enumerate(queries, 1):
             try:
-                logger.info(f"🔍 Perplexity verification {i}/3 for {ticker}")
+                logger.info(f"Perplexity verification {i}/3 for {ticker}")
                 response = self._simple_perplexity_query(query, perplexity_key)
                 
                 if response:
-                    logger.info(f"📥 Perplexity response {i}: {response[:100]}...")
+                    logger.info(f"Perplexity response {i}: {response[:100]}...")
                     
                     # Extract range with multiple patterns
                     patterns = [
@@ -2888,16 +2888,16 @@ Example: {{"price": 150.25, "pe_ratio": 28.5, "beta": 1.2}}"""
                                 # Basic validation
                                 if 0.01 <= low < high <= 50000:  # Reasonable price range
                                     perplexity_results.append({'low': low, 'high': high, 'query': i, 'source': 'perplexity'})
-                                    logger.info(f"✅ Perplexity extracted range {i}: ${low:.2f} - ${high:.2f}")
+                                    logger.info(f"Perplexity extracted range {i}: ${low:.2f} - ${high:.2f}")
                                     break
                             except ValueError:
                                 continue
                     
                     if not any(r['query'] == i for r in perplexity_results):
-                        logger.warning(f"❌ Could not extract valid range from Perplexity response {i}")
+                        logger.warning(f"Could not extract valid range from Perplexity response {i}")
                         
             except Exception as e:
-                logger.error(f"❌ Perplexity 52-week range query {i} failed: {e}")
+                logger.error(f"Perplexity 52-week range query {i} failed: {e}")
         
         # STEP 3: Use Perplexity results if available (Polygon already handled above)
         if perplexity_results:
@@ -2924,19 +2924,19 @@ Example: {{"price": 150.25, "pe_ratio": 28.5, "beta": 1.2}}"""
                     final_low = min(r['low'] for r in consistent_results)
                     final_high = max(r['high'] for r in consistent_results)
                     
-                    logger.info(f"✅ Using Perplexity 52-week range for {ticker}: ${final_low:.2f} - ${final_high:.2f} (from {len(consistent_results)}/{len(perplexity_results)} consistent results)")
+                    logger.info(f"Using Perplexity 52-week range for {ticker}: ${final_low:.2f} - ${final_high:.2f} (from {len(consistent_results)}/{len(perplexity_results)} consistent results)")
                     return {'low': final_low, 'high': final_high, 'source': 'perplexity'}
                 else:
-                    logger.warning(f"❌ Perplexity results inconsistent for {ticker}")
+                    logger.warning(f"Perplexity results inconsistent for {ticker}")
                     return None
             else:
                 # Only one Perplexity result
                 result = perplexity_results[0]
-                logger.warning(f"⚠️ Only 1 Perplexity result for {ticker}: ${result['low']:.2f} - ${result['high']:.2f}")
+                logger.warning(f"Only 1 Perplexity result for {ticker}: ${result['low']:.2f} - ${result['high']:.2f}")
                 return {'low': result['low'], 'high': result['high'], 'source': 'perplexity'}
         
         else:
-            logger.error(f"❌ No valid 52-week range data found for {ticker}")
+            logger.error(f"No valid 52-week range data found for {ticker}")
             return None
 
     # Cache methods (same as original)

@@ -213,7 +213,7 @@ class PerformanceAnalysisEngine:
                     unique_movements[movement.ticker] = movement
         
         movements = list(unique_movements.values())
-        logger.info(f"🎯 After deduplication: {len(movements)} unique tickers to analyze")
+        logger.info(f"After deduplication: {len(movements)} unique tickers to analyze")
         
         # Step 2: Analyze each movement to determine root causes
         analyses = []
@@ -273,14 +273,14 @@ class PerformanceAnalysisEngine:
             for ws_name in worksheet_names:
                 try:
                     worksheet = sheet.worksheet(ws_name)
-                    logger.info(f"✅ Found worksheet: '{ws_name}'")
+                    logger.info(f"Found worksheet: '{ws_name}'")
                     break
                 except Exception as e:
                     logger.debug(f"Worksheet '{ws_name}' not found: {e}")
                     continue
             
             if worksheet is None:
-                logger.error(f"❌ Could not find any of the expected worksheets: {worksheet_names}")
+                logger.error(f"FAIL: Could not find any of the expected worksheets: {worksheet_names}")
                 logger.error(f"Available worksheets: {[ws.title for ws in sheet.worksheets()]}")
                 return None
             
@@ -289,7 +289,7 @@ class PerformanceAnalysisEngine:
                 data = worksheet.get_all_records()
             except Exception as e:
                 if "duplicates" in str(e):
-                    logger.error(f"❌ Worksheet '{worksheet.title}' has duplicate/empty column headers")
+                    logger.error(f"FAIL: Worksheet '{worksheet.title}' has duplicate/empty column headers")
                     logger.error(f"Please ensure your worksheet has unique, non-empty column names in the first row")
                     logger.error(f"Available worksheets: {[ws.title for ws in sheet.worksheets()]}")
                 else:
@@ -305,8 +305,8 @@ class PerformanceAnalysisEngine:
             # Clean column names (strip whitespace, normalize)
             df.columns = df.columns.str.strip()
             
-            logger.info(f"✅ Fetched {len(df)} rows from Google Sheets (worksheet: '{worksheet.title}')")
-            logger.info(f"📋 Columns available (cleaned): {list(df.columns)}")
+            logger.info(f"Fetched {len(df)} rows from Google Sheets (worksheet: '{worksheet.title}')")
+            logger.info(f"Columns available (cleaned): {list(df.columns)}")
             
             # Verify we have the required columns
             required_cols = ['Ticker']
@@ -314,12 +314,12 @@ class PerformanceAnalysisEngine:
             has_prices = 'Price at Analysis' in df.columns and 'Price' in df.columns
             
             if not any(col in df.columns for col in required_cols):
-                logger.error(f"❌ Missing required 'Ticker' column!")
+                logger.error(f"FAIL: Missing required 'Ticker' column!")
                 logger.error(f"Available columns: {list(df.columns)}")
                 return None
             
             if not has_pct_change and not has_prices:
-                logger.error(f"❌ Missing required data columns!")
+                logger.error(f"FAIL: Missing required data columns!")
                 logger.error(f"Need either: 'Percent Change' OR ('Price at Analysis' + 'Price')")
                 logger.error(f"Available columns: {list(df.columns)}")
                 return None
@@ -331,7 +331,7 @@ class PerformanceAnalysisEngine:
                 has_prices = any(col in df.columns for col in ['Price at Analysis', 'Price_at_Analysis']) and \
                             any(col in df.columns for col in ['Price', 'Current Price'])
                 
-                logger.info(f"📊 Data source: {'Percent Change column' if has_pct_change else 'Will calculate from prices' if has_prices else 'MISSING DATA'}")
+                logger.info(f"Data source: {'Percent Change column' if has_pct_change else 'Will calculate from prices' if has_prices else 'MISSING DATA'}")
                 
                 if has_pct_change and 'Percent Change' in df.columns:
                     sample_values = df['Percent Change'].head(10).tolist()
@@ -345,7 +345,7 @@ class PerformanceAnalysisEngine:
                         logger.info(f"   Sample {price_col}: {df[price_col].head(5).tolist()}")
                         logger.info(f"   Sample {current_col}: {df[current_col].head(5).tolist()}")
                 
-                logger.info(f"🔍 First row example: Ticker={df.iloc[0].get('Ticker', 'N/A')}")
+                logger.info(f"First row example: Ticker={df.iloc[0].get('Ticker', 'N/A')}")
             
             return df
             
@@ -391,11 +391,11 @@ class PerformanceAnalysisEngine:
             ticker = row.get('Ticker', '')
             pct_change_raw = row.get('Percent Change', 'N/A')
             debug_data.append(f"{ticker}: {pct_change_raw} (type: {type(pct_change_raw).__name__})")
-        logger.info(f"📊 RAW DATA FROM SHEETS (first 20): {', '.join(debug_data[:20])}")
+        logger.info(f"RAW DATA FROM SHEETS (first 20): {', '.join(debug_data[:20])}")
         
         # Show column names exactly as they appear
-        logger.info(f"🔍 EXACT COLUMN NAMES: {list(sheets_df.columns)}")
-        logger.info(f"🔍 'Percent Change' in columns: {'Percent Change' in sheets_df.columns}")
+        logger.info(f"EXACT COLUMN NAMES: {list(sheets_df.columns)}")
+        logger.info(f"'Percent Change' in columns: {'Percent Change' in sheets_df.columns}")
         
         for idx, row in sheets_df.iterrows():
             try:
@@ -492,7 +492,7 @@ class PerformanceAnalysisEngine:
                             price_change_pct = ((current_price - price_at_analysis) / price_at_analysis) * 100
                             
                             # Log the calculation for verification
-                            logger.info(f"📊 {ticker}: Calculated change since analysis")
+                            logger.info(f"{ticker}: Calculated change since analysis")
                             logger.info(f"   Price at Analysis: ${price_at_analysis:.2f}")
                             logger.info(f"   Current Price: ${current_price:.2f}")
                             logger.info(f"   Change: ${current_price - price_at_analysis:.2f} ({price_change_pct:+.2f}%)")
@@ -508,12 +508,12 @@ class PerformanceAnalysisEngine:
                         continue
                 
                 if price_change_pct is None:
-                    logger.warning(f"{ticker}: ❌ No percent change data available after trying all methods - SKIPPED")
+                    logger.warning(f"{ticker}: FAIL: No percent change data available after trying all methods - SKIPPED")
                     logger.warning(f"   Raw 'Percent Change' value: {row.get('Percent Change', 'NOT FOUND')}")
                     logger.warning(f"   Available columns: {list(row.index)}")
                     continue
                 
-                logger.info(f"{ticker}: ✓ Successfully parsed percent change: {price_change_pct}%")
+                logger.info(f"{ticker}: Successfully parsed percent change: {price_change_pct}%")
                 
                 # Validate percent change is reasonable (not NaN, infinity, or extreme outlier)
                 if not isinstance(price_change_pct, (int, float)):
@@ -528,10 +528,10 @@ class PerformanceAnalysisEngine:
                 abs_change = abs(price_change_pct)
                 
                 if abs_change < min_threshold:
-                    logger.debug(f"⚪ {ticker}: {price_change_pct:+.2f}% (below {min_threshold}% threshold)")
+                    logger.debug(f"{ticker}: {price_change_pct:+.2f}% (below {min_threshold}% threshold)")
                     continue  # Not significant enough (must be >= min_threshold)
                 
-                logger.info(f"✅ {ticker}: {price_change_pct:+.2f}% - QUALIFIED (threshold={min_threshold}%)")
+                logger.info(f"PASS: {ticker}: {price_change_pct:+.2f}% - QUALIFIED (threshold={min_threshold}%)")
                 
                 # Classify magnitude
                 if abs_change >= self.movement_thresholds['extreme']:
@@ -636,19 +636,19 @@ class PerformanceAnalysisEngine:
         up_movements = [m for m in movements if m.direction == "up"]
         down_movements = [m for m in movements if m.direction == "down"]
         
-        logger.info(f"🎯 ANALYSIS COMPLETE: Identified {len(movements)} significant movements from {len(sheets_df)} stocks (threshold: {min_threshold}%)")
-        logger.info(f"   📈 {len(up_movements)} stocks moved UP  |  📉 {len(down_movements)} stocks moved DOWN")
+        logger.info(f"ANALYSIS COMPLETE: Identified {len(movements)} significant movements from {len(sheets_df)} stocks (threshold: {min_threshold}%)")
+        logger.info(f"   {len(up_movements)} stocks moved UP  |  {len(down_movements)} stocks moved DOWN")
         
         if len(movements) > 0:
             top_gainers = [m for m in movements if m.direction == "up"][:3]
             top_losers = [m for m in movements if m.direction == "down"][:3]
             
             if top_gainers:
-                logger.info(f"✅ Top GAINERS: {', '.join([f'{m.ticker} (+{m.price_change_pct:.1f}%)' for m in top_gainers])}")
+                logger.info(f"Top GAINERS: {', '.join([f'{m.ticker} (+{m.price_change_pct:.1f}%)' for m in top_gainers])}")
             if top_losers:
-                logger.info(f"❌ Top LOSERS: {', '.join([f'{m.ticker} ({m.price_change_pct:.1f}%)' for m in top_losers])}")
+                logger.info(f"Top LOSERS: {', '.join([f'{m.ticker} ({m.price_change_pct:.1f}%)' for m in top_losers])}")
         else:
-            logger.warning(f"⚠️ NO MOVEMENTS FOUND meeting {min_threshold}% threshold")
+            logger.warning(f"WARNING: NO MOVEMENTS FOUND meeting {min_threshold}% threshold")
             logger.warning(f"   - Analyzed {len(sheets_df)} stocks from Google Sheets")
             logger.warning(f"   - Try lowering threshold or check if 'Percent Change' column has valid data")
             logger.warning(f"   - Check logs above for RAW DATA to see actual values")
@@ -818,7 +818,7 @@ class PerformanceAnalysisEngine:
                 try:
                     import requests
                     api_key = self.data_provider.polygon_key
-                    logger.info(f"📰 Fetching recent news for {ticker} via Polygon.io...")
+                    logger.info(f"Fetching recent news for {ticker} via Polygon.io...")
                     # Focus on last 14 days for speed and relevance
                     url = f"https://api.polygon.io/v2/reference/news?ticker={ticker}&published_utc.gte={recent_start}&published_utc.lte={end_date}&limit=10&order=desc&apiKey={api_key}"
                     response = requests.get(url, timeout=10)  # Reduced timeout
@@ -834,13 +834,13 @@ class PerformanceAnalysisEngine:
                                 source=article.get('publisher', {}).get('name', 'Polygon News') if isinstance(article.get('publisher'), dict) else 'Polygon News',
                                 keywords=article.get('keywords', [])
                             ))
-                        logger.info(f"✅ Found {len(polygon_articles)} recent articles via Polygon.io")
+                        logger.info(f"Found {len(polygon_articles)} recent articles via Polygon.io")
                 except Exception as e:
                     logger.debug(f"Polygon API error: {e}")
             
             # FAST STRATEGY 2: Only if we have <5 articles, try get_news_with_sources (slower)
             if len(news_articles) < 5 and hasattr(self.data_provider, 'get_news_with_sources'):
-                logger.info(f"📰 Supplementing with get_news_with_sources for {ticker}...")
+                logger.info(f"Supplementing with get_news_with_sources for {ticker}...")
                 news_data = self.data_provider.get_news_with_sources(ticker, limit=8)  # Reduced limit
                 
                 if news_data and isinstance(news_data, list):
@@ -853,15 +853,15 @@ class PerformanceAnalysisEngine:
                             source=article.get('source', 'Unknown'),
                             keywords=article.get('keywords', [])
                         ))
-                    logger.info(f"✅ Found {len(news_data)} supplemental articles")
+                    logger.info(f"Found {len(news_data)} supplemental articles")
             
             # FAST STRATEGY 3: Perplexity ONLY if critical (very low coverage)
             if len(news_articles) < 3 and hasattr(self.data_provider, 'perplexity_key') and self.data_provider.perplexity_key:
                 try:
-                    logger.info(f"📰 Using Perplexity for critical {ticker} research...")
+                    logger.info(f"Using Perplexity for critical {ticker} research...")
                     perplexity_news = self._perplexity_news_search_fast(ticker, recent_start, end_date)
                     news_articles.extend(perplexity_news)
-                    logger.info(f"✅ Found {len(perplexity_news)} insights via Perplexity")
+                    logger.info(f"Found {len(perplexity_news)} insights via Perplexity")
                 except Exception as e:
                     logger.debug(f"Perplexity error: {e}")
             
@@ -884,7 +884,7 @@ class PerformanceAnalysisEngine:
         except Exception as e:
             logger.error(f"Error fetching news for {ticker}: {e}")
         
-        logger.info(f"📊 Total: {len(news_articles)} recent, unique articles for {ticker}")
+        logger.info(f"Total: {len(news_articles)} recent, unique articles for {ticker}")
         return news_articles
     
     def _perplexity_news_search(
@@ -1695,7 +1695,7 @@ Be SPECIFIC. Include dates and numbers in every root cause."""
         adjustments_made = []
         patterns = self._identify_patterns(analyses) if analyses else {}
         
-        logger.info("🤖 AUTONOMOUS ADJUSTMENT: Analyzing performance patterns...")
+        logger.info("AUTONOMOUS ADJUSTMENT: Analyzing performance patterns...")
         logger.info(f"   Patterns detected: {patterns}")
         
         # Adjustment 1: Agent Weight Adjustments
@@ -1708,7 +1708,7 @@ Be SPECIFIC. Include dates and numbers in every root cause."""
                     'changes': agent_weight_changes,
                     'timestamp': datetime.now().isoformat()
                 })
-                logger.info(f"✅ Applied agent weight adjustments: {agent_weight_changes}")
+                logger.info(f"Applied agent weight adjustments: {agent_weight_changes}")
         
         # Adjustment 2: Threshold Adjustments
         threshold_changes = self._calculate_threshold_adjustments(analyses, patterns)
@@ -1720,7 +1720,7 @@ Be SPECIFIC. Include dates and numbers in every root cause."""
                     'changes': threshold_changes,
                     'timestamp': datetime.now().isoformat()
                 })
-                logger.info(f"✅ Applied threshold adjustments: {threshold_changes}")
+                logger.info(f"Applied threshold adjustments: {threshold_changes}")
         
         # Adjustment 3: Feature Focus Adjustments
         feature_changes = self._calculate_feature_adjustments(analyses, patterns)
@@ -1730,14 +1730,14 @@ Be SPECIFIC. Include dates and numbers in every root cause."""
                 'changes': feature_changes,
                 'timestamp': datetime.now().isoformat()
             })
-            logger.info(f"✅ Identified feature focus changes: {feature_changes}")
+            logger.info(f"Identified feature focus changes: {feature_changes}")
         
         # Save adjustment history
         if adjustments_made:
             self._save_adjustment_history(adjustments_made)
-            logger.info(f"🎯 AUTONOMOUS ADJUSTMENT COMPLETE: {len(adjustments_made)} adjustments applied")
+            logger.info(f"AUTONOMOUS ADJUSTMENT COMPLETE: {len(adjustments_made)} adjustments applied")
         else:
-            logger.info("ℹ️  No adjustments needed - model performing adequately")
+            logger.info("No adjustments needed - model performing adequately")
         
         return {
             'status': 'completed',
@@ -1874,7 +1874,7 @@ Be SPECIFIC. Include dates and numbers in every root cause."""
             with open(config_path, 'w') as f:
                 yaml.dump(config, f, default_flow_style=False, sort_keys=False)
             
-            logger.info(f"✅ Updated agent weights in {config_path} (backup: {backup_path})")
+            logger.info(f"Updated agent weights in {config_path} (backup: {backup_path})")
             return True
             
         except Exception as e:

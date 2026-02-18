@@ -198,10 +198,17 @@ class GrowthMomentumAgent(BaseAgent):
         # Generate detailed scoring explanation
         scoring_explanation = self._generate_scoring_explanation(ticker, scores, details, composite_score)
         details['scoring_explanation'] = scoring_explanation
-        
+
+        # Fetch domain-specific supporting articles
+        articles = self._fetch_supporting_articles(
+            ticker, "earnings growth revenue momentum analyst upgrade price target"
+        )
+        details['supporting_articles'] = articles
+
         # Generate AI rationale with actual final score
         rationale = self._generate_rationale(ticker, details, composite_score)
-        
+        rationale += self._format_article_references(articles)
+
         return {
             'score': round(composite_score, 2),
             'rationale': rationale,

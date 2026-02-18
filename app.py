@@ -570,7 +570,7 @@ def stock_analysis_page():
         )
     
     # Weight preset
-    st.markdown("### ⚖️ Agent Weights")
+    st.markdown("### Agent Weights")
     col1, col2, col3 = st.columns(3)
     
     with col1:
@@ -606,7 +606,7 @@ def stock_analysis_page():
         
         if st.session_state.get('show_custom_weights', False):
             st.info("""
-            **📊 Custom Weights Explanation:**
+            **Custom Weights Explanation:**
             
             These weights control **how much each agent's score influences the final score**.
             
@@ -815,7 +815,7 @@ def stock_analysis_page():
             total_est_seconds = int(avg_time * len(tickers))
             est_minutes = total_est_seconds // 60
             est_seconds = total_est_seconds % 60
-            time_estimate_display.info(f"⏱️ Initial estimate: ~{est_minutes}m {est_seconds}s for {len(tickers)} stocks")
+            time_estimate_display.info(f"Initial estimate: ~{est_minutes}m {est_seconds}s for {len(tickers)} stocks")
             
             for idx, stock_ticker in enumerate(tickers):
                 stock_start_time = time_module.time()
@@ -907,7 +907,7 @@ def stock_analysis_page():
                         est_remaining_minutes = remaining / stocks_per_minute if stocks_per_minute > 0 else 0
                         est_minutes = int(est_remaining_minutes)
                         est_seconds = int((est_remaining_minutes - est_minutes) * 60)
-                        time_estimate_display.info(f"⏱️ Updated estimate: ~{est_minutes}m {est_seconds}s remaining ({completed}/{len(tickers)} complete, {stocks_per_minute:.1f} stocks/min)")
+                        time_estimate_display.info(f"Updated estimate: ~{est_minutes}m {est_seconds}s remaining ({completed}/{len(tickers)} complete, {stocks_per_minute:.1f} stocks/min)")
                     
                 except Exception as e:
                     stock_progress_bar.empty()
@@ -1018,7 +1018,7 @@ def display_stock_analysis(result: dict):
 
     
     # Enhanced key metrics section with modern card-style layout
-    st.markdown("### 📊 Key Investment Metrics")
+    st.markdown("### Key Investment Metrics")
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
@@ -1128,7 +1128,7 @@ def display_stock_analysis(result: dict):
     
     # ========== COMPREHENSIVE SCORE ANALYSIS SECTION ==========
     st.markdown("---")
-    st.markdown("### ⚖️ Score Analysis & Agent Breakdown")
+    st.markdown("### Score Analysis & Agent Breakdown")
     
     with st.expander("Detailed Breakdown", expanded=False):
         # Get agent scores and weights
@@ -1277,14 +1277,14 @@ Formula: Blended Score = Weighted Sum / Total Weight
     
     # Enhanced Agent Analysis Section
     st.markdown("---")
-    st.markdown("### 🤖 Agent Analysis Details")
+    st.markdown("### Agent Analysis Details")
     
     # Display enhanced agent rationales with collaboration
     display_enhanced_agent_rationales(result)
     
     # Comprehensive rationale
     st.markdown("---")
-    st.markdown("### 📋 Investment Rationale")
+    st.markdown("### Investment Rationale")
     
     with st.expander("View Full Report", expanded=False):
         # Get the comprehensive rationale from the result
@@ -1370,7 +1370,7 @@ Formula: Blended Score = Weighted Sum / Total Weight
         
         with col_exp1:
             st.download_button(
-                label="� Download CSV Report",
+                label="Download CSV Report",
                 data=csv,
                 file_name=f"{result['ticker']}_analysis_{current_timestamp}.csv",
                 mime="text/csv",
@@ -1402,8 +1402,10 @@ Formula: Blended Score = Weighted Sum / Total Weight
             
             report += f"\n---\n\n## Key Metrics\n"
             report += f"- **Market Cap:** ${result['fundamentals'].get('market_cap', 0)/1e9:.2f}B\n"
-            report += f"- **P/E Ratio:** {result['fundamentals'].get('pe_ratio', 'N/A')}\n"
-            report += f"- **Beta:** {result['fundamentals'].get('beta', 'N/A')}\n"
+            pe_val = result['fundamentals'].get('pe_ratio')
+            report += f"- **P/E Ratio:** {pe_val:.1f}\n" if pe_val else "- **P/E Ratio:** N/A\n"
+            beta_val = result['fundamentals'].get('beta')
+            report += f"- **Beta:** {beta_val:.2f}\n" if beta_val else "- **Beta:** N/A\n"
             
             if result['fundamentals'].get('dividend_yield'):
                 report += f"- **Dividend Yield:** {result['fundamentals']['dividend_yield']*100:.2f}%\n"
@@ -1417,7 +1419,7 @@ Formula: Blended Score = Weighted Sum / Total Weight
             report += f"\n---\n*Investment Analysis Platform*\n"
             
             st.download_button(
-                label="� Download Full Report",
+                label="Download Full Report",
                 data=report,
                 file_name=f"{ticker}_report_{current_timestamp}.md",
                 mime="text/markdown",
@@ -1438,7 +1440,7 @@ def display_multiple_stock_analysis(results: list, failed_tickers: list):
     
     # Summary comparison
     st.markdown("---")
-    st.markdown("### 📊 Comparison")
+    st.markdown("### Comparison")
     
     # Prepare data for comparison table
     comparison_data = []
@@ -1468,7 +1470,7 @@ def display_multiple_stock_analysis(results: list, failed_tickers: list):
     # Format numeric columns
     df['Final Score'] = df['Final Score'].round(1)
     df['Price'] = df['Price'].apply(lambda x: f"${x:,.2f}")
-    df['Market Cap'] = df['Market Cap'].apply(lambda x: f"${x/1e9:.2f}B" if x >= 1e9 else f"${x/1e6:.2f}M")
+    df['Market Cap'] = df['Market Cap'].apply(lambda x: f"${x/1e9:.1f}B" if x >= 1e9 else f"${x/1e6:.0f}M" if x > 0 else "N/A")
     df['Value Score'] = df['Value Score'].round(1)
     df['Growth Score'] = df['Growth Score'].round(1)
     df['Macro Score'] = df['Macro Score'].round(1)
@@ -1489,7 +1491,7 @@ def display_multiple_stock_analysis(results: list, failed_tickers: list):
     
     # Visual comparison
     st.markdown("---")
-    st.markdown("### 📊 Charts")
+    st.markdown("### Charts")
     
     col1, col2 = st.columns(2)
     
@@ -1587,7 +1589,7 @@ def display_multiple_stock_analysis(results: list, failed_tickers: list):
     
     # Portfolio insights
     st.markdown("---")
-    st.markdown("### 🎯 Insights")
+    st.markdown("### Insights")
     
     col1, col2 = st.columns(2)
     
@@ -1699,7 +1701,7 @@ def display_multiple_stock_analysis(results: list, failed_tickers: list):
     
     # Individual stock details
     st.markdown("---")
-    st.markdown("### 📋 Stock Details")
+    st.markdown("### Stock Details")
     
     tabs = st.tabs([result['ticker'] for result in results])
     
@@ -1740,17 +1742,17 @@ def get_agent_specific_context(agent_key: str, result: dict) -> dict:
     
     if agent_key == 'value_agent':
         context.update({
-            'P/E Ratio': f"{fundamentals.get('pe_ratio', 'N/A')}" if fundamentals.get('pe_ratio') else 'N/A',
+            'P/E Ratio': f"{fundamentals.get('pe_ratio'):.1f}" if fundamentals.get('pe_ratio') else 'N/A',
             'Market Cap': f"${fundamentals.get('market_cap', 0)/1e9:.1f}B" if fundamentals.get('market_cap') else 'N/A',
             'Dividend Yield': f"{fundamentals.get('dividend_yield', 0)*100:.2f}%" if fundamentals.get('dividend_yield') else 'N/A',
-            'Price': f"${fundamentals.get('price', 'N/A')}" if fundamentals.get('price') else 'N/A'
+            'Price': f"${fundamentals.get('price'):.2f}" if fundamentals.get('price') else 'N/A'
         })
     
     elif agent_key == 'growth_momentum_agent':
         context.update({
-            'Current Price': f"${fundamentals.get('price', 'N/A')}" if fundamentals.get('price') else 'N/A',
-            '52-Week High': f"${fundamentals.get('week_52_high', 'N/A')}" if fundamentals.get('week_52_high') else 'N/A',
-            '52-Week Low': f"${fundamentals.get('week_52_low', 'N/A')}" if fundamentals.get('week_52_low') else 'N/A',
+            'Current Price': f"${fundamentals.get('price'):.2f}" if fundamentals.get('price') else 'N/A',
+            '52-Week High': f"${fundamentals.get('week_52_high'):.2f}" if fundamentals.get('week_52_high') else 'N/A',
+            '52-Week Low': f"${fundamentals.get('week_52_low'):.2f}" if fundamentals.get('week_52_low') else 'N/A',
             'Volume': f"{fundamentals.get('volume', 'N/A'):,.0f}" if fundamentals.get('volume') else 'N/A'
         })
     
@@ -1770,7 +1772,7 @@ def get_agent_specific_context(agent_key: str, result: dict) -> dict:
         context.update({
             'News Articles Analyzed': f"{news_count}",
             'Sector': f"{fundamentals.get('sector', 'Unknown')}",
-            'Recent Price': f"${fundamentals.get('price', 'N/A')}" if fundamentals.get('price') else 'N/A'
+            'Recent Price': f"${fundamentals.get('price'):.2f}" if fundamentals.get('price') else 'N/A'
         })
     
     elif agent_key == 'macro_regime_agent':
@@ -1809,7 +1811,7 @@ def display_enhanced_agent_rationales(result: dict):
     collaboration_results = get_agent_collaboration(result)
     
     # Display agent scores chart
-    st.write("**� Agent Score Overview**")
+    st.write("**Agent Score Overview**")
     
     # Create bar chart with gradient colors 
     fig = go.Figure()
@@ -1837,7 +1839,7 @@ def display_enhanced_agent_rationales(result: dict):
     
     # Individual Agent Rationales Section
     st.write("---")
-    st.write("**🧠 Individual Agent Analysis**")
+    st.write("**Individual Agent Analysis**")
     
     # Create detailed rationale display for each agent 
     for i, (agent_key, agent_name) in enumerate(zip(agent_scores.keys(), agent_names)):
@@ -2139,12 +2141,13 @@ Analyzed {num_articles} recent articles to assess market sentiment and narrative
         
         if article_details:
             for i, article in enumerate(article_details, 1):
+                preview = article.get('preview', '')
+                preview_section = f"\n- **Preview:** \"{preview}\"" if preview else ""
                 analysis += f"""
 
 **Article {i}: {article['source']}**
 - **Title:** {article['title']}
-- **Published:** {article['published_at']}
-- **Description:** {article['description']}
+- **Published:** {article['published_at']}{preview_section}
 - **Link:** {article['url'] if article['url'] else 'No link available'}
 """
         else:
@@ -2422,7 +2425,7 @@ def display_portfolio_recommendations(result: dict):
                 stage = stage_info.get('stage', 'Unknown')
                 
                 if stage == 'openai_initial_selection':
-                    st.markdown("#### 1️⃣ OpenAI Initial Selection")
+                    st.markdown("#### 1. OpenAI Initial Selection")
                     tickers = stage_info.get('tickers', [])
                     st.write(f"Selected {len(tickers)} tickers: {', '.join(tickers)}")
                 
@@ -2432,17 +2435,17 @@ def display_portfolio_recommendations(result: dict):
                     st.write(f"Selected {len(tickers)} tickers: {', '.join(tickers)}")
                 
                 elif stage == 'aggregation':
-                    st.markdown("#### 3️⃣ Aggregation")
+                    st.markdown("#### 3. Aggregation")
                     count = stage_info.get('count', 0)
                     st.write(f"Total unique candidates: **{count}** tickers")
                 
                 elif stage == 'rationale_generation':
-                    st.markdown("#### 4️⃣ Rationale Generation")
+                    st.markdown("#### 4. Rationale Generation")
                     rationales = stage_info.get('ticker_rationales', {})
                     st.write(f"Generated 4-sentence rationales for {len(rationales)} tickers")
                 
                 elif stage == 'final_selection_rounds':
-                    st.markdown("#### 5️⃣ Final Selection Rounds")
+                    st.markdown("#### 5. Final Selection Rounds")
                     round_1 = stage_info.get('round_1', [])
                     round_2 = stage_info.get('round_2', [])
                     round_3 = stage_info.get('round_3', [])
@@ -2459,7 +2462,7 @@ def display_portfolio_recommendations(result: dict):
                         st.write(", ".join(round_3))
                 
                 elif stage == 'final_consolidation':
-                    st.markdown("#### 6️⃣ Final Consolidation")
+                    st.markdown("#### 6. Final Consolidation")
                     unique = stage_info.get('unique_finalists', [])
                     final = stage_info.get('final_5', [])
                     st.write(f"Unique finalists: {len(unique)} → Final selection: **{len(final)}**")
@@ -2538,7 +2541,7 @@ def display_portfolio_recommendations(result: dict):
                             # Individual download
                             with open(file_path, 'r') as f:
                                 st.download_button(
-                                    label="⬇️",
+                                    label="Download",
                                     data=f.read(),
                                     file_name=log_file,
                                     mime="application/json",
@@ -2694,7 +2697,7 @@ def system_status_and_ai_disclosure_page():
         
         # API Keys Status
         st.markdown("---")
-        st.write("**🔑 API Keys Status**")
+        st.write("**API Keys Status**")
         
         api_keys_status = {
             "Alpha Vantage": bool(os.getenv('ALPHA_VANTAGE_API_KEY')),
@@ -2714,7 +2717,7 @@ def system_status_and_ai_disclosure_page():
         
         # Provider Capabilities
         st.markdown("---")
-        st.write("**⚡ Provider Capabilities**")
+        st.write("**Provider Capabilities**")
         
         capabilities = {
             "Stock Price Data": True,
@@ -2735,7 +2738,7 @@ def system_status_and_ai_disclosure_page():
         # Cache Information
         if cache_exists:
             st.markdown("---")
-            st.write("**💾 Cache Information**")
+            st.write("**Cache Information**")
             try:
                 cache_files = list(cache_dir.glob("*"))
                 total_size = sum(f.stat().st_size for f in cache_files if f.is_file())
@@ -2758,7 +2761,7 @@ def system_status_and_ai_disclosure_page():
         
         # Data Source Test
         st.markdown("---")
-        st.write("**🧪 Test Data Sources**")
+        st.write("**Test Data Sources**")
         
         test_ticker = st.text_input("Test ticker:", value="AAPL")
         
@@ -2780,7 +2783,7 @@ def system_status_and_ai_disclosure_page():
                     if not price_data.empty:
                         results['Price Data'] = f"{len(price_data)} days of data"
                         if 'SYNTHETIC_DATA' in price_data.columns:
-                            results['Price Data'] += " (⚠️ Synthetic)"
+                            results['Price Data'] += " (Synthetic)"
                     else:
                         results['Price Data'] = "No data"
                         
@@ -2797,7 +2800,7 @@ def system_status_and_ai_disclosure_page():
                     if fund_data:
                         results['Fundamentals'] = f"{len(fund_data)} data points"
                         if fund_data.get('estimated'):
-                            results['Fundamentals'] += " (⚠️ Estimated)"
+                            results['Fundamentals'] += " (Estimated)"
                     else:
                         results['Fundamentals'] = "No data"
                         
@@ -3021,7 +3024,7 @@ def configuration_page():
             st.session_state.initialized = False
     
     with tab3:
-        st.subheader("⏱️ Analysis Timing Analytics")
+        st.subheader("Analysis Timing Analytics")
         st.write("Deep insights into step-level timing data collected from all analyses.")
         
         if hasattr(st.session_state, 'step_time_manager'):

@@ -22,11 +22,11 @@ def test_polygon_api():
     print()
     
     if not polygon_key:
-        print("❌ ERROR: POLYGON_API_KEY not found in .env file")
+        print("FAIL:ERROR: POLYGON_API_KEY not found in .env file")
         print("Please add your Polygon API key to the .env file")
         return
     
-    print(f"✅ API Key found: {polygon_key[:10]}...")
+    print(f"PASS:API Key found: {polygon_key[:10]}...")
     print()
     
     # Test tickers
@@ -49,7 +49,7 @@ def test_polygon_api():
             print(f"  Status Code: {response.status_code}")
             
             if response.status_code != 200:
-                print(f"  ❌ HTTP Error: {response.status_code}")
+                print(f"  FAIL:HTTP Error: {response.status_code}")
                 print(f"  Response: {response.text[:200]}")
                 continue
             
@@ -60,18 +60,18 @@ def test_polygon_api():
                 volume = data['results'][0].get('v', 0)
                 timestamp = data['results'][0].get('t', 0)
                 
-                print(f"  ✅ Success!")
+                print(f"  PASS:Success!")
                 print(f"     Price: ${price:.2f}")
                 print(f"     Volume: {volume:,}")
                 print(f"     Timestamp: {timestamp}")
                 success_count += 1
             else:
                 error = data.get('error', data.get('message', 'Unknown error'))
-                print(f"  ❌ API Error: {error}")
+                print(f"  FAIL:API Error: {error}")
                 print(f"  Full response: {data}")
         
         except Exception as e:
-            print(f"  ❌ Exception: {e}")
+            print(f"  FAIL:Exception: {e}")
         
         print()
     
@@ -80,13 +80,13 @@ def test_polygon_api():
     print("=" * 80)
     
     if success_count == len(test_tickers):
-        print("✅ All tests passed! Polygon.io API is working correctly.")
+        print("PASS:All tests passed! Polygon.io API is working correctly.")
         print("Your price fetching should work in the main app.")
     elif success_count > 0:
-        print("⚠️  Partial success. Some tickers worked, others failed.")
+        print("WARNING: Partial success. Some tickers worked, others failed.")
         print("This might be a rate limit or ticker availability issue.")
     else:
-        print("❌ All tests failed. Check your API key and network connection.")
+        print("FAIL:All tests failed. Check your API key and network connection.")
         print()
         print("Troubleshooting steps:")
         print("1. Verify your API key at: https://polygon.io/dashboard/api-keys")

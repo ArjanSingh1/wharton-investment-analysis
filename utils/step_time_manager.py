@@ -36,13 +36,13 @@ class StepTimeManager:
                 self.step_times = {int(k): v for k, v in data.get('step_times', {}).items()}
                 self.step_stats = {int(k): v for k, v in data.get('step_stats', {}).items()}
                 
-                print(f"✅ Loaded step timing data: {sum(len(times) for times in self.step_times.values())} samples across {len(self.step_times)} steps")
+                print(f"Loaded step timing data: {sum(len(times) for times in self.step_times.values())} samples across {len(self.step_times)} steps")
             except Exception as e:
-                print(f"⚠️ Could not load step times: {e}")
+                print(f"Could not load step times: {e}")
                 self.step_times = {}
                 self.step_stats = {}
         else:
-            print("📊 No existing step timing data found. Starting fresh.")
+            print("No existing step timing data found. Starting fresh.")
             self.step_times = {}
             self.step_stats = {}
     
@@ -60,7 +60,7 @@ class StepTimeManager:
                 json.dump(data, f, indent=2)
                 
         except Exception as e:
-            print(f"⚠️ Could not save step times: {e}")
+            print(f"Could not save step times: {e}")
     
     def record_step_time(self, step_number: int, duration: float):
         """Record a step duration."""

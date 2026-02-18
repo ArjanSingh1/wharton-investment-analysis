@@ -174,15 +174,22 @@ class RiskAgent(BaseAgent):
         # Generate detailed scoring explanation
         scoring_explanation = self._generate_scoring_explanation(ticker, scores, details, composite_score)
         details['scoring_explanation'] = scoring_explanation
-        
+
+        # Fetch domain-specific supporting articles
+        articles = self._fetch_supporting_articles(
+            ticker, "stock risk analysis volatility beta downside risk assessment"
+        )
+        details['supporting_articles'] = articles
+
         # Generate rationale
         rationale = self._generate_rationale(ticker, details, scores, composite_score)
+        rationale += self._format_article_references(articles)
         
         # Verify key data points for accuracy - DISABLED to prevent timeouts
         # verification_results = self._verify_risk_data(ticker, details, fundamentals)
         # details['verification_results'] = verification_results
         details['verification_results'] = {"status": "disabled", "reason": "Disabled to prevent connection timeouts"}
-        logger.info(f"✅ Verification skipped for {ticker} to prevent timeouts")
+        logger.info(f"Verification skipped for {ticker} to prevent timeouts")
         
         return {
             'score': round(composite_score, 2),
@@ -545,7 +552,7 @@ Focus on actionable insights for portfolio risk management and downside protecti
             
             if claims_to_verify and self.verifier:
                 verification_results = self.verifier.verify_comprehensive_data(ticker, analysis_data)
-                logger.info(f"✅ Verified risk metrics for {ticker}")
+                logger.info(f"Verified risk metrics for {ticker}")
                 return verification_results
             else:
                 reason = "No verifiable claims found" if claims_to_verify else "Comprehensive verification disabled"

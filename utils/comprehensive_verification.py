@@ -43,10 +43,10 @@ class ComprehensiveDataVerifier:
         
         # Check if we already verified this data point
         if cache_key in self.verification_cache:
-            logger.info(f"🎯 CACHE HIT: Using cached verification for {ticker} {data_key}: {data_value}")
+            logger.info(f"CACHE HIT: Using cached verification for {ticker} {data_key}: {data_value}")
             return self.verification_cache[cache_key]
         
-        logger.info(f"🔍 NEW VERIFICATION: Starting verification for {ticker} {data_key}: {data_value}")
+        logger.info(f"NEW VERIFICATION: Starting verification for {ticker} {data_key}: {data_value}")
         logger.info(f"Starting MULTIPLE verification for {ticker} {data_key}: {data_value} ({num_verifications} verifications)")
         
         # Format the value for display
@@ -113,7 +113,7 @@ class ComprehensiveDataVerifier:
                         "status": "verified"
                     })
                     
-                    logger.info(f"✅ Verification {i+1} completed for {ticker} {data_key}")
+                    logger.info(f"Verification {i+1} completed for {ticker} {data_key}")
                     
                 else:
                     logger.error(f"Perplexity verification {i+1} failed for {ticker} {data_key}: {response.status_code}")
@@ -150,7 +150,7 @@ class ComprehensiveDataVerifier:
             
             # Cache the successful verification result
             self.verification_cache[cache_key] = result
-            logger.info(f"✅ CACHED: Verification result cached for {ticker} {data_key}: {data_value}")
+            logger.info(f"CACHED: Verification result cached for {ticker} {data_key}: {data_value}")
             
             return result
         else:
@@ -164,14 +164,14 @@ class ComprehensiveDataVerifier:
             
             # Cache the failed verification result to avoid retrying
             self.verification_cache[cache_key] = result
-            logger.info(f"❌ CACHED: Failed verification result cached for {ticker} {data_key}: {data_value}")
+            logger.info(f"CACHED: Failed verification result cached for {ticker} {data_key}: {data_value}")
             
             return result
     
     def clear_verification_cache(self):
         """Clear the verification cache to force fresh verification of all data points."""
         self.verification_cache.clear()
-        logger.info("🧹 CACHE CLEARED: All cached verification results have been cleared")
+        logger.info("CACHE CLEARED: All cached verification results have been cleared")
     
     def get_cache_stats(self) -> Dict[str, Any]:
         """Get statistics about the verification cache."""
@@ -283,12 +283,12 @@ class ComprehensiveDataVerifier:
         Returns:
             Comprehensive verification results for all data points
         """
-        logger.info(f"🔍 COMPREHENSIVE VERIFICATION: Starting verification of ALL data points for {ticker}")
+        logger.info(f"COMPREHENSIVE VERIFICATION: Starting verification of ALL data points for {ticker}")
         
         # Log current cache stats before starting
         cache_stats = self.get_cache_stats()
         if cache_stats['total_cached_verifications'] > 0:
-            logger.info(f"📊 CACHE STATUS: {cache_stats['total_cached_verifications']} cached verifications available ({cache_stats['cache_hit_efficiency']} success rate)")
+            logger.info(f"CACHE STATUS: {cache_stats['total_cached_verifications']} cached verifications available ({cache_stats['cache_hit_efficiency']} success rate)")
         
         verification_results = {}
         
@@ -309,18 +309,18 @@ class ComprehensiveDataVerifier:
         
         for data_key, data_value in key_points.items():
             if data_value != 'N/A' and data_value is not None:
-                logger.info(f"🎯 Verifying {ticker} {data_key}: {data_value}")
+                logger.info(f"Verifying {ticker} {data_key}: {data_value}")
                 
                 description = f"{ticker} {data_key.replace('_', ' ')}"
                 verification = self._verify_single_data_point(ticker, data_key, data_value, description)
                 verification_results[data_key] = verification
                 
-                logger.info(f"✅ {ticker} {data_key} verification complete: {verification.get('status', 'unknown')}")
+                logger.info(f"{ticker} {data_key} verification complete: {verification.get('status', 'unknown')}")
         
         # Log final cache stats to show efficiency gains
         final_cache_stats = self.get_cache_stats()
-        logger.info(f"🎯 COMPREHENSIVE VERIFICATION COMPLETE for {ticker}: {len(verification_results)} data points verified")
-        logger.info(f"📊 CACHE EFFICIENCY: {final_cache_stats['total_cached_verifications']} total cached ({final_cache_stats['cache_hit_efficiency']} success rate)")
+        logger.info(f"COMPREHENSIVE VERIFICATION COMPLETE for {ticker}: {len(verification_results)} data points verified")
+        logger.info(f"CACHE EFFICIENCY: {final_cache_stats['total_cached_verifications']} total cached ({final_cache_stats['cache_hit_efficiency']} success rate)")
         
         return {
             "ticker": ticker,
@@ -334,7 +334,7 @@ class ComprehensiveDataVerifier:
         """
         Verify sector comparative data using multiple Perplexity queries
         """
-        logger.info(f"🏭 Starting sector comparative verification for {ticker} in {sector}")
+        logger.info(f"Starting sector comparative verification for {ticker} in {sector}")
         
         sector_verification = {
             "ticker": ticker,
@@ -479,7 +479,7 @@ def verify_analysis_claims(ticker: str, analysis_text: str) -> Dict[str, Any]:
     Returns:
         Verification results for extracted claims
     """
-    logger.info(f"🔍 Extracting and verifying claims from analysis for {ticker}")
+    logger.info(f"Extracting and verifying claims from analysis for {ticker}")
     
     perplexity_api_key = os.getenv('PERPLEXITY_API_KEY')
     if not perplexity_api_key:

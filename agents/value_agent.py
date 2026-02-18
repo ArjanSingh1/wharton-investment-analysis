@@ -146,10 +146,17 @@ class ValueAgent(BaseAgent):
         # Generate detailed scoring explanation
         scoring_explanation = self._generate_scoring_explanation(ticker, scores, details, composite_score, fundamentals)
         details['scoring_explanation'] = scoring_explanation
-        
+
+        # Fetch domain-specific supporting articles
+        articles = self._fetch_supporting_articles(
+            ticker, "valuation analysis P/E ratio EV/EBITDA dividend yield intrinsic value"
+        )
+        details['supporting_articles'] = articles
+
         # Generate AI rationale with actual final score
         rationale = self._generate_rationale(ticker, fundamentals, scores, details, composite_score)
-        
+        rationale += self._format_article_references(articles)
+
         return {
             'score': round(composite_score, 2),
             'rationale': rationale,

@@ -8,6 +8,8 @@ from typing import Dict, List, Any, Tuple
 import pandas as pd
 import numpy as np
 import logging
+import time
+import threading
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -68,7 +70,7 @@ class PortfolioOrchestrator:
         agent_weights_config = ips_config.get('agent_weights', {})
         self.agent_weights = {
             'value_agent': agent_weights_config.get('value', 0.20),  # Value for reasonable entry
-            'growth_momentum_agent': agent_weights_config.get('growth_momentum', 0.40),  # 🚀 DOUBLED - Upside potential is KEY
+            'growth_momentum_agent': agent_weights_config.get('growth_momentum', 0.40),  # DOUBLED - Upside potential is KEY
             'macro_regime_agent': agent_weights_config.get('macro_regime', 0.10),  # Reduced - less important than growth
             'risk_agent': agent_weights_config.get('risk', 0.15),  # Reduced - upside > downside protection
             'sentiment_agent': agent_weights_config.get('sentiment', 0.15)  # Market momentum matters
@@ -89,11 +91,24 @@ class PortfolioOrchestrator:
         Returns complete analysis with scores, rationale, and recommendations.
         """
         logger.info(f"Starting comprehensive analysis for {ticker} as of {analysis_date}")
-        
-        # Simple progress tracking function with EMA-smoothed time estimates
+
+        # Phase durations based on typical runs (used for smooth progress interpolation)
+        # Phase 1: Data gathering 0-30% (~30-40s)
+        # Phase 2: Agent analysis 30-85% (~20-30s, 5 agents)
+        # Phase 3: Blending/finalization 85-100% (~1-2s)
+        PHASE_DATA_GATHER = (0, 30)    # 0% to 30%
+        PHASE_AGENTS = (30, 85)         # 30% to 85%
+        PHASE_FINALIZE = (85, 100)      # 85% to 100%
+
+        analysis_start_time = time.time()
+
+        # Smooth progress tracking with background interpolation
+        _progress_lock = threading.Lock()
+        _current_progress = {'pct': 0, 'message': f'Starting analysis for {ticker}...', 'stop': False}
+
         def update_progress(message, progress_pct):
+            """Update progress bar and status text."""
             import streamlit as st
-            import time
 
             try:
                 if not hasattr(st, 'session_state') or not hasattr(st.session_state, 'analysis_progress'):
@@ -101,11 +116,15 @@ class PortfolioOrchestrator:
 
                 progress = st.session_state.analysis_progress
 
+                with _progress_lock:
+                    _current_progress['pct'] = progress_pct
+                    _current_progress['message'] = message
+
                 # Update progress bar
                 if progress.get('progress_bar'):
                     progress['progress_bar'].progress(progress_pct / 100.0)
 
-                # Update status text with smoothed time remaining
+                # Update status text with time remaining
                 if progress.get('status_text'):
                     time_display = ""
                     if progress.get('start_time') and progress_pct >= 3:
@@ -116,10 +135,49 @@ class PortfolioOrchestrator:
 
                     progress['status_text'].text(f"{message}{time_display}")
 
-                time.sleep(0.05)
+                time.sleep(0.03)
 
             except Exception as e:
                 logger.error(f"Progress update failed: {e}")
+
+        def _smooth_progress_interpolator(start_pct, end_pct, duration_estimate, message_prefix):
+            """
+            Background thread that smoothly advances progress bar from start_pct to end_pct
+            over duration_estimate seconds. Stops when _current_progress['stop'] is True
+            or when actual progress exceeds the interpolated value.
+            """
+            import streamlit as st
+
+            step_interval = 0.5  # Update every 500ms
+            steps = max(1, int(duration_estimate / step_interval))
+            pct_per_step = (end_pct - start_pct) / steps
+
+            current_pct = start_pct
+            for i in range(steps):
+                with _progress_lock:
+                    if _current_progress['stop'] or _current_progress['pct'] >= end_pct:
+                        return
+                    # Only advance if actual progress hasn't jumped ahead
+                    if _current_progress['pct'] < current_pct:
+                        _current_progress['pct'] = current_pct
+
+                try:
+                    if not hasattr(st, 'session_state') or not hasattr(st.session_state, 'analysis_progress'):
+                        return
+                    progress = st.session_state.analysis_progress
+                    if progress.get('progress_bar'):
+                        progress['progress_bar'].progress(current_pct / 100.0)
+                    if progress.get('status_text'):
+                        elapsed = time.time() - analysis_start_time
+                        time_display = PortfolioOrchestrator._estimate_time_remaining(
+                            elapsed, current_pct, getattr(st, 'session_state', None)
+                        )
+                        progress['status_text'].text(f"{message_prefix}{time_display}")
+                except Exception:
+                    pass
+
+                current_pct += pct_per_step
+                time.sleep(step_interval)
         
         # Set agent weights for this analysis if provided
         if agent_weights:
@@ -139,17 +197,36 @@ class PortfolioOrchestrator:
                 if agent_name in self.agent_weights:
                     self.agent_weights[agent_name] = weight
         
-        # 1. Gather all data
-        update_progress(f"🔍 Fetching fundamental data from multiple sources for {ticker}", 10)
-        
+        # 1. Gather all data (Phase 1: 0-30%)
+        update_progress(f"Fetching data for {ticker} from multiple sources...", 3)
+
+        # Start smooth interpolator for data gathering phase
+        # Estimate ~35s for data gathering based on typical runs
+        data_gather_duration = 35
+        import streamlit as st
+        if hasattr(st, 'session_state'):
+            hist = getattr(st.session_state, 'analysis_phase_times', {})
+            if 'data_gather' in hist and len(hist['data_gather']) > 0:
+                data_gather_duration = sum(hist['data_gather']) / len(hist['data_gather'])
+
+        interpolator_thread = threading.Thread(
+            target=_smooth_progress_interpolator,
+            args=(3, 28, data_gather_duration, f"Gathering data for {ticker}..."),
+            daemon=True
+        )
+        interpolator_thread.start()
+
+        data_gather_start = time.time()
         try:
             data = self._gather_data(ticker, analysis_date, existing_portfolio)
         except Exception as e:
             logger.error(f"Error gathering data for {ticker}: {e}")
             import traceback
             traceback.print_exc()
+            with _progress_lock:
+                _current_progress['stop'] = True
             return {
-                'ticker': ticker, 
+                'ticker': ticker,
                 'error': f'Data gathering failed: {str(e)}',
                 'fundamentals': {},
                 'price_history': {},
@@ -160,10 +237,30 @@ class PortfolioOrchestrator:
                 'final_score': 0,
                 'eligible': False
             }
+
+        # Stop interpolator and snap to 30%
+        with _progress_lock:
+            _current_progress['stop'] = True
+        data_gather_elapsed = time.time() - data_gather_start
+
+        # Record phase timing for future estimates
+        try:
+            if hasattr(st, 'session_state'):
+                if not hasattr(st.session_state, 'analysis_phase_times'):
+                    st.session_state.analysis_phase_times = {'data_gather': [], 'agents': []}
+                phase_times = st.session_state.analysis_phase_times
+                phase_times.setdefault('data_gather', []).append(data_gather_elapsed)
+                # Keep last 5 runs
+                if len(phase_times['data_gather']) > 5:
+                    phase_times['data_gather'] = phase_times['data_gather'][-5:]
+        except Exception:
+            pass
+
+        update_progress(f"Data gathered for {ticker} in {data_gather_elapsed:.0f}s", 30)
         
         if not data or not data.get('fundamentals'):
             logger.warning(f"No fundamental data for {ticker}")
-            update_progress(f"❌ No fundamental data found for {ticker}", 10)
+            update_progress(f"No fundamental data found for {ticker}", 10)
             return {
                 'ticker': ticker, 
                 'error': 'No data available',
@@ -197,39 +294,76 @@ class PortfolioOrchestrator:
         else:
             market_cap_str = "N/A"
         
-        update_progress(f"Fetching fundamentals, price data, and market metrics for {ticker}...", 20)
+        update_progress(f"Data ready: ${price} price, {pe_ratio} P/E, {market_cap_str} mkt cap", 30)
 
-        # 2. Phase 1: Run all agents independently
-        update_progress(f"Launching {len(self.agents)} AI analysis agents for {ticker}...", 30)
+        # 2. Phase 2: Run all agents (30-85%)
         agent_results = {}
         agent_count = 0
         total_agents = len(self.agents)
-        
+        agent_phase_start = time.time()
+
+        # Estimate per-agent duration for smooth interpolation
+        avg_agent_duration = 5  # Default 5s per agent
+        try:
+            if hasattr(st, 'session_state'):
+                hist = getattr(st.session_state, 'analysis_phase_times', {})
+                if 'agents' in hist and len(hist['agents']) > 0:
+                    avg_agent_duration = (sum(hist['agents']) / len(hist['agents'])) / total_agents
+        except Exception:
+            pass
+
+        agent_labels_map = {
+            'value_agent': 'Value',
+            'growth_momentum_agent': 'Growth/Momentum',
+            'macro_regime_agent': 'Macro Regime',
+            'risk_agent': 'Risk',
+            'sentiment_agent': 'Sentiment'
+        }
+
         for agent_name, agent in self.agents.items():
             agent_count += 1
-            # Calculate progress through agents (30-70%)
-            agent_progress = 30 + (agent_count / total_agents) * 40
-            
-            # Update progress for specific agents with descriptive messages
+            # Calculate progress range for this agent (30-85%, evenly divided)
+            agent_start_pct = 30 + ((agent_count - 1) / total_agents) * 55
+            agent_end_pct = 30 + (agent_count / total_agents) * 55
+            agent_label = agent_labels_map.get(agent_name, agent_name.replace('_agent', '').title())
+
+            # Descriptive message for this agent
             if 'value' in agent_name.lower():
-                pe_ratio = data['fundamentals'].get('pe_ratio', 'N/A')
-                dividend_yield = data['fundamentals'].get('dividend_yield', 'N/A')
-                update_progress(f"Value Agent: Evaluating P/E ratio ({pe_ratio}), dividend yield, and intrinsic value...", int(agent_progress))
+                pe_display = f"{pe_ratio:.1f}" if isinstance(pe_ratio, (int, float)) else str(pe_ratio)
+                agent_msg = f"{agent_label} Agent: Evaluating P/E ({pe_display}), dividend yield, intrinsic value..."
             elif 'growth' in agent_name.lower():
-                eps = data['fundamentals'].get('eps', 'N/A')
-                update_progress(f"Growth Agent: Analyzing earnings growth, revenue momentum, and price trends...", int(agent_progress))
+                agent_msg = f"{agent_label} Agent: Analyzing earnings growth, revenue momentum, price trends..."
             elif 'macro' in agent_name.lower():
                 sector = data['fundamentals'].get('sector', 'Unknown')
-                update_progress(f"Macro Agent: Assessing {sector} sector positioning in current economic regime...", int(agent_progress))
+                agent_msg = f"{agent_label} Agent: Assessing {sector} sector in current macro regime..."
             elif 'risk' in agent_name.lower():
-                beta = data['fundamentals'].get('beta', 'N/A')
-                update_progress(f"Risk Agent: Computing volatility, beta ({beta}), and downside risk metrics...", int(agent_progress))
+                beta_val = data['fundamentals'].get('beta', 'N/A')
+                beta_display = f"{beta_val:.2f}" if isinstance(beta_val, (int, float)) else str(beta_val)
+                agent_msg = f"{agent_label} Agent: Computing volatility, beta ({beta_display}), drawdown..."
             elif 'sentiment' in agent_name.lower():
-                update_progress(f"Sentiment Agent: Fetching news articles and analyzing market sentiment...", int(agent_progress))
-            
+                agent_msg = f"{agent_label} Agent: Fetching news articles and analyzing sentiment..."
+            else:
+                agent_msg = f"{agent_label} Agent: Running analysis..."
+
+            update_progress(agent_msg, int(agent_start_pct))
+
+            # Start smooth interpolator for this agent
+            with _progress_lock:
+                _current_progress['stop'] = False
+            agent_interpolator = threading.Thread(
+                target=_smooth_progress_interpolator,
+                args=(agent_start_pct + 1, agent_end_pct - 1, avg_agent_duration, agent_msg),
+                daemon=True
+            )
+            agent_interpolator.start()
+
             try:
                 result = agent.analyze(ticker, data)
                 agent_results[agent_name] = result
+
+                # Stop interpolator
+                with _progress_lock:
+                    _current_progress['stop'] = True
 
                 # Log results and show completion with score
                 score = result.get('score')
@@ -238,16 +372,13 @@ class PortfolioOrchestrator:
                     result['score'] = 50
                 logger.info(f"{agent_name}: {score:.1f} - {result['rationale']}")
 
-                # Show agent completion with result summary
-                agent_label = agent_name.replace('_agent', '').replace('_', '/').title()
+                # Show agent completion
                 if 'sentiment' in agent_name.lower():
                     num_articles = result.get('details', {}).get('num_articles', 0)
-                    if num_articles > 0:
-                        update_progress(f"Sentiment Agent complete: Analyzed {num_articles} news articles, score {score:.0f}/100", int(agent_progress))
-                    else:
-                        update_progress(f"Sentiment Agent complete: Limited news coverage, score {score:.0f}/100", int(agent_progress))
+                    completion_msg = f"{agent_label} Agent: {num_articles} articles analyzed, score {score:.0f}/100"
                 else:
-                    update_progress(f"{agent_label} Agent complete: scored {score:.0f}/100", int(agent_progress))
+                    completion_msg = f"{agent_label} Agent complete: {score:.0f}/100"
+                update_progress(completion_msg, int(agent_end_pct))
             except Exception as e:
                 logger.error(f"Error in {agent_name} for {ticker}: {e}")
                 agent_results[agent_name] = {
@@ -256,16 +387,38 @@ class PortfolioOrchestrator:
                     'details': {}
                 }
         
-        # 3. Blend scores with weighted averaging
-        update_progress(f"Blending all agent scores with configured weights...", 80)
+        # 3. Phase 3: Blend scores and finalize (85-100%)
+        agent_phase_elapsed = time.time() - agent_phase_start
+
+        # Record agent phase timing
+        try:
+            if hasattr(st, 'session_state'):
+                if not hasattr(st.session_state, 'analysis_phase_times'):
+                    st.session_state.analysis_phase_times = {'data_gather': [], 'agents': []}
+                phase_times = st.session_state.analysis_phase_times
+                phase_times.setdefault('agents', []).append(agent_phase_elapsed)
+                if len(phase_times['agents']) > 5:
+                    phase_times['agents'] = phase_times['agents'][-5:]
+
+                # Also record total time for overall ETA
+                total_elapsed = time.time() - analysis_start_time
+                if not hasattr(st.session_state, 'analysis_times'):
+                    st.session_state.analysis_times = []
+                st.session_state.analysis_times.append(total_elapsed)
+                if len(st.session_state.analysis_times) > 5:
+                    st.session_state.analysis_times = st.session_state.analysis_times[-5:]
+        except Exception:
+            pass
+
+        update_progress(f"Blending agent scores with configured weights...", 88)
         blended_score = self._blend_scores(agent_results)
 
-        # 4. Finalize
         recommendation = self._generate_recommendation(blended_score)
-        update_progress(f"Analysis complete: {blended_score:.1f}/100 - {recommendation}", 90)
+        update_progress(f"Analysis complete: {blended_score:.1f}/100 - {recommendation}", 95)
         final_score = blended_score
 
-        update_progress(f"Analysis complete: {final_score:.1f}/100", 100)
+        total_time = time.time() - analysis_start_time
+        update_progress(f"Analysis complete: {final_score:.1f}/100 ({total_time:.0f}s total)", 100)
 
         # Restore original weights if they were changed
         if agent_weights:
@@ -473,7 +626,7 @@ class PortfolioOrchestrator:
         
         # Log the upside calculation for transparency
         if upside_factors:
-            logger.info(f"🚀 UPSIDE MULTIPLIER APPLIED: {upside_multiplier:.2f}x")
+            logger.info(f"UPSIDE MULTIPLIER APPLIED: {upside_multiplier:.2f}x")
             logger.info(f"   Base Score: {base_score:.1f}")
             logger.info(f"   Upside Factors:")
             for factor in upside_factors:
@@ -602,81 +755,35 @@ class PortfolioOrchestrator:
         end_date = analysis_date
         start_date = pd.to_datetime(analysis_date) - pd.DateOffset(years=1)
         start_date = start_date.strftime('%Y-%m-%d')
-        
+
         # Ensure we don't use future dates that break Yahoo Finance
         today = datetime.now().date()
         if pd.to_datetime(end_date).date() > today:
             end_date = today.strftime('%Y-%m-%d')
             start_date = (pd.to_datetime(today) - pd.DateOffset(years=1)).strftime('%Y-%m-%d')
-        
+
         data = {
             'ticker': ticker,
             'analysis_date': analysis_date,
         }
-        
-        # Sub-progress function with EMA-smoothed time estimates
-        def update_sub_progress(message, progress_pct):
-            import streamlit as st
-            import time
 
-            try:
-                if not hasattr(st, 'session_state') or not hasattr(st.session_state, 'analysis_progress'):
-                    return
-
-                progress = st.session_state.analysis_progress
-
-                # Update status text with smoothed time remaining
-                if progress.get('status_text'):
-                    time_display = ""
-                    if progress.get('start_time') and progress_pct and progress_pct >= 3:
-                        elapsed = time.time() - progress['start_time']
-                        time_display = PortfolioOrchestrator._estimate_time_remaining(
-                            elapsed, progress_pct, st.session_state
-                        )
-
-                    progress['status_text'].text(f"{message}{time_display}")
-
-                # Update progress bar
-                if progress_pct is not None and progress.get('progress_bar'):
-                    progress['progress_bar'].progress(progress_pct / 100.0)
-
-                time.sleep(0.05)
-
-            except Exception as e:
-                logger.error(f"Sub-progress update failed: {e}")
-        
         benchmark = self.ips_config.get('universe', {}).get('benchmark', '^GSPC')
-        
-        # PARALLEL DATA GATHERING - Run all 3 API calls simultaneously with dynamic progress tracking
-        import time
-        start_time = time.time()
-        tasks_completed = 0
-        total_tasks = 3
-        
-        update_sub_progress(f"Starting parallel data retrieval for {ticker}...", 5)
-        
+
+        # PARALLEL DATA GATHERING - Run all 3 API calls simultaneously
         with ThreadPoolExecutor(max_workers=3) as executor:
-            # Submit all 3 tasks in parallel
             futures = {}
-            task_start_times = {}
-            
-            # Task 1: Get fundamentals (API calls - slowest, ~36s)
+
+            # Task 1: Get fundamentals (API calls - slowest, ~30-40s)
             if hasattr(self.data_provider, 'get_fundamentals_enhanced'):
-                update_sub_progress(f"Fetching company fundamentals from financial APIs...", 10)
-                task_start_times['fundamentals'] = time.time()
                 futures['fundamentals'] = executor.submit(
                     self.data_provider.get_fundamentals_enhanced, ticker
                 )
             else:
-                task_start_times['fundamentals'] = time.time()
                 futures['fundamentals'] = executor.submit(
                     self.data_provider.get_fundamentals, ticker
                 )
-            
+
             # Task 2: Get price history (Yahoo/Polygon API - medium, ~3-5s)
-            # We'll decide which method after fundamentals, but submit the full fetch now
-            update_sub_progress(f"Downloading historical price data...", 15)
-            task_start_times['price_history'] = time.time()
             if hasattr(self.data_provider, 'get_price_history_enhanced'):
                 futures['price_history'] = executor.submit(
                     self.data_provider.get_price_history_enhanced,
@@ -687,97 +794,55 @@ class PortfolioOrchestrator:
                     self.data_provider.get_price_history,
                     ticker, start_date, end_date
                 )
-            
+
             # Task 3: Generate benchmark data (synthetic - fast, <1s)
-            update_sub_progress(f"Generating benchmark correlation data...", 20)
-            task_start_times['benchmark'] = time.time()
             futures['benchmark'] = executor.submit(
                 self._create_benchmark_data, benchmark, start_date, end_date
             )
-            
-            # Collect results as they complete - SHOW REAL-TIME UPDATES
-            update_sub_progress(f"Waiting for all data sources to respond...", 25)
-            
-            # Get fundamentals result
-            try:
-                data['fundamentals'] = futures['fundamentals'].result()
-                task_duration = time.time() - task_start_times['fundamentals']
-                tasks_completed += 1
-                progress_pct = 25 + (tasks_completed / total_tasks) * 45  # 25-70% range
-                elapsed_total = time.time() - start_time
-                update_sub_progress(f"Fundamentals retrieved in {task_duration:.1f}s", int(progress_pct))
-                
-                # Show specific extracted values
-                if data['fundamentals']:
-                    price = data['fundamentals'].get('price', 'N/A')
-                    pe_ratio = data['fundamentals'].get('pe_ratio', 'N/A')
-                    eps = data['fundamentals'].get('eps', 'N/A')
-                    week_52_low = data['fundamentals'].get('week_52_low', 'N/A')
-                    week_52_high = data['fundamentals'].get('week_52_high', 'N/A')
-                    beta = data['fundamentals'].get('beta', 'N/A')
-                    
-                    update_sub_progress(f"Found: Price ${price}, P/E {pe_ratio}, EPS ${eps}", int(progress_pct))
-                    
-                    # CRITICAL DEBUG: Check what we actually got
-                    logger.info(f"🔍 ORCHESTRATOR RECEIVED FUNDAMENTALS FOR {ticker}:")
-                    logger.info(f"   → price: {data['fundamentals'].get('price')} (type: {type(data['fundamentals'].get('price')).__name__})")
-                    logger.info(f"   → pe_ratio: {data['fundamentals'].get('pe_ratio')} (type: {type(data['fundamentals'].get('pe_ratio')).__name__})")
-                    logger.info(f"   → beta: {data['fundamentals'].get('beta')} (type: {type(data['fundamentals'].get('beta')).__name__})")
-                    logger.info(f"   → data_sources: {data['fundamentals'].get('data_sources')}")
-            except Exception as e:
-                logger.error(f"Failed to get fundamentals for {ticker}: {e}")
-                data['fundamentals'] = {}
-            
-            # Get price history result - check if we need it or use synthetic
-            try:
-                if data.get('fundamentals', {}).get('source') == 'comprehensive_enhanced':
-                    # Cancel the price history fetch if not needed
-                    futures['price_history'].cancel()
-                    tasks_completed += 1
-                    progress_pct = 25 + (tasks_completed / total_tasks) * 45
-                    update_sub_progress(f"Price history included in comprehensive data", int(progress_pct))
-                    data['price_history'] = self._extract_price_history_from_fundamentals(data['fundamentals'])
-                else:
-                    # Use the fetched price history
-                    data['price_history'] = futures['price_history'].result()
-                    task_duration = time.time() - task_start_times['price_history']
-                    tasks_completed += 1
-                    progress_pct = 25 + (tasks_completed / total_tasks) * 45
-                    update_sub_progress(f"Price history retrieved: {task_duration:.1f}s", int(progress_pct))
-                    
-                    if data['price_history'] is not None and not data['price_history'].empty:
-                        latest_price = data['price_history']['Close'].iloc[-1] if 'Close' in data['price_history'].columns else 'N/A'
-                        days_of_data = len(data['price_history'])
-                update_sub_progress(f"Downloaded {days_of_data} trading days of price data", int(progress_pct))
-            except Exception as e:
-                logger.error(f"Failed to get price history for {ticker}: {e}")
-                # Fallback to synthetic
-                if data.get('fundamentals'):
-                    data['price_history'] = self._extract_price_history_from_fundamentals(data['fundamentals'])
-                else:
-                    data['price_history'] = pd.DataFrame()
-            
-            # Get benchmark result
-            try:
-                data['benchmark_history'] = futures['benchmark'].result()
-                task_duration = time.time() - task_start_times['benchmark']
-                tasks_completed += 1
-                progress_pct = 25 + (tasks_completed / total_tasks) * 45  # Should reach 70%
-                update_sub_progress(f"Benchmark data generated in {task_duration:.1f}s", int(progress_pct))
-                
-                if data['benchmark_history'] is not None and not data['benchmark_history'].empty:
-                    benchmark_return = ((data['benchmark_history']['Close'].iloc[-1] / data['benchmark_history']['Close'].iloc[0]) - 1) * 100
-                    correlation_days = len(data['benchmark_history'])
-                    update_sub_progress(f"{benchmark} {correlation_days} days, {benchmark_return:.1f}% return for beta calc", int(progress_pct))
-            except Exception as e:
-                logger.error(f"Failed to get benchmark data: {e}")
-                data['benchmark_history'] = pd.DataFrame()
-        
+
+            # Collect results using as_completed for real parallel processing
+            future_to_name = {v: k for k, v in futures.items()}
+            for future in as_completed(futures.values()):
+                name = future_to_name[future]
+                try:
+                    result = future.result()
+                    if name == 'fundamentals':
+                        data['fundamentals'] = result
+                        if result:
+                            logger.info(f"ORCHESTRATOR RECEIVED FUNDAMENTALS FOR {ticker}:")
+                            logger.info(f"   price: {result.get('price')} pe_ratio: {result.get('pe_ratio')} beta: {result.get('beta')}")
+                            logger.info(f"   data_sources: {result.get('data_sources')}")
+                    elif name == 'price_history':
+                        data['_price_history_raw'] = result
+                    elif name == 'benchmark':
+                        data['benchmark_history'] = result
+                    logger.info(f"Data task '{name}' completed for {ticker}")
+                except Exception as e:
+                    logger.error(f"Failed to get {name} for {ticker}: {e}")
+                    if name == 'fundamentals':
+                        data['fundamentals'] = {}
+                    elif name == 'price_history':
+                        data['_price_history_raw'] = None
+                    elif name == 'benchmark':
+                        data['benchmark_history'] = pd.DataFrame()
+
+        # Process price history (may depend on fundamentals result)
+        if data.get('fundamentals', {}).get('source') == 'comprehensive_enhanced':
+            data['price_history'] = self._extract_price_history_from_fundamentals(data['fundamentals'])
+        elif data.get('_price_history_raw') is not None:
+            data['price_history'] = data['_price_history_raw']
+        elif data.get('fundamentals'):
+            data['price_history'] = self._extract_price_history_from_fundamentals(data['fundamentals'])
+        else:
+            data['price_history'] = pd.DataFrame()
+        data.pop('_price_history_raw', None)
+
+        if 'benchmark_history' not in data:
+            data['benchmark_history'] = pd.DataFrame()
+
         # Add existing portfolio for risk analysis
         data['existing_portfolio'] = existing_portfolio or []
-        
-        total_duration = time.time() - start_time
-        update_sub_progress(f"All data gathered for {ticker} in {total_duration:.1f}s", 10)
+
         return data
     
     def _extract_price_history_from_fundamentals(self, fundamentals: Dict) -> pd.DataFrame:
@@ -868,7 +933,7 @@ class PortfolioOrchestrator:
         if analysis_date is None:
             analysis_date = datetime.now().strftime('%Y-%m-%d')
         
-        logger.info(f"🎯 Starting Portfolio Recommendation - {num_positions} positions")
+        logger.info(f"Starting Portfolio Recommendation - {num_positions} positions")
         
         # If no challenge context provided, use default
         if challenge_context is None:
@@ -888,10 +953,10 @@ class PortfolioOrchestrator:
         # Stage 1: Get tickers (either AI-selected or manual)
         if tickers is None:
             if self.ai_selector is None:
-                logger.error("❌ AI Portfolio Selector not available")
+                logger.error("AI Portfolio Selector not available")
                 raise ValueError("AI Portfolio Selector not initialized. Check OpenAI and Gemini API keys.")
             
-            logger.info(f"🤖 Running AI-powered ticker selection (universe: {universe_size})...")
+            logger.info(f"Running AI-powered ticker selection (universe: {universe_size})...")
             selection_result = self.ai_selector.select_portfolio_tickers(
                 challenge_context=challenge_context,
                 client_profile=client_profile,
@@ -903,17 +968,17 @@ class PortfolioOrchestrator:
             all_candidates = selection_result['all_candidates']
             selection_log = selection_result['session_log']
             
-            logger.info(f"✅ AI selected {len(selected_tickers)} tickers: {', '.join(selected_tickers)}")
+            logger.info(f"AI selected {len(selected_tickers)} tickers: {', '.join(selected_tickers)}")
         else:
             # Manual ticker list provided
             selected_tickers = tickers[:num_positions]
             ticker_rationales = {t: "Manually selected ticker" for t in selected_tickers}
             all_candidates = selected_tickers
             selection_log = {'manual_selection': True, 'tickers': selected_tickers}
-            logger.info(f"📝 Using manual ticker list: {', '.join(selected_tickers)}")
+            logger.info(f"Using manual ticker list: {', '.join(selected_tickers)}")
         
         # Stage 2: Run full analysis on each ticker
-        logger.info(f"📊 Running comprehensive analysis on {len(selected_tickers)} tickers...")
+        logger.info(f"Running comprehensive analysis on {len(selected_tickers)} tickers...")
         
         portfolio_analyses = []
         for i, ticker in enumerate(selected_tickers, 1):
@@ -934,11 +999,11 @@ class PortfolioOrchestrator:
                 logger.info(f"   {ticker}: Score {analysis['final_score']:.1f}")
                 
             except Exception as e:
-                logger.error(f"   ❌ Analysis failed for {ticker}: {e}")
+                logger.error(f"   Analysis failed for {ticker}: {e}")
                 continue
         
         # Stage 3: Filter and construct portfolio
-        logger.info("📋 Constructing portfolio from analyzed stocks...")
+        logger.info("Constructing portfolio from analyzed stocks...")
         
         # Sort by final score
         portfolio_analyses.sort(key=lambda x: x.get('final_score', 0), reverse=True)
@@ -984,7 +1049,7 @@ class PortfolioOrchestrator:
             'selection_method': 'AI-powered' if tickers is None else 'Manual'
         }
         
-        logger.info(f"✅ Portfolio constructed: {len(portfolio)} positions, Avg Score: {avg_score:.1f}")
+        logger.info(f"Portfolio constructed: {len(portfolio)} positions, Avg Score: {avg_score:.1f}")
         
         return {
             'portfolio': portfolio,
