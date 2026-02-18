@@ -707,27 +707,20 @@ def stock_analysis_page():
         progress_bar = st.progress(0)
         status_text = st.empty()
         status_text.text("Initializing analysis...")
-        
+
         # Track analysis start time for adaptive estimates
         import time as time_module
         analysis_start_time = time_module.time()
-        
-        # Initialize progress tracking in session state
-        st.session_state.analysis_progress = {
-            'progress_bar': progress_bar,
-            'status_text': status_text,
-            'start_time': analysis_start_time
-        }
-        
+
+        # Direct progress callback - updates widgets from the main thread
+        def on_progress(pct, message):
+            progress_bar.progress(pct / 100.0)
+            status_text.text(message)
+
         # Handle single or multiple stock analysis
         if analysis_mode == "Single Stock":
             # Single stock analysis (existing logic)
             try:
-                # Initialize step tracking for this analysis
-                st.session_state.current_analysis_start = time_module.time()
-                st.session_state.current_step_start = time_module.time()
-                st.session_state.last_step = 0
-                
                 # Calculate estimated time
                 if st.session_state.analysis_times:
                     avg_time = sum(st.session_state.analysis_times) / len(st.session_state.analysis_times)
@@ -736,9 +729,9 @@ def stock_analysis_page():
                     status_text.text(f"Starting analysis... (Est. {est_minutes}m {est_seconds}s)")
                 else:
                     status_text.text("Starting analysis... (Est. ~30-40s)")
-                
+
                 progress_bar.progress(0)
-                
+
                 # Track start time
                 start_time = time_module.time()
                 
@@ -755,7 +748,8 @@ def stock_analysis_page():
                 result = st.session_state.orchestrator.analyze_stock(
                     ticker=ticker,
                     analysis_date=date_str,
-                    agent_weights=agent_weights
+                    agent_weights=agent_weights,
+                    progress_callback=on_progress
                 )
                 
                 # Track end time and store
@@ -847,16 +841,11 @@ def stock_analysis_page():
                 stock_status_text = st.empty()
                 stock_status_text.text("Initializing analysis...")
 
-                # Track analysis start time for adaptive estimates
-                analysis_start_time = time_module.time()
-                
-                # Simple progress tracking in session state
-                st.session_state.analysis_progress = {
-                    'progress_bar': stock_progress_bar,
-                    'status_text': stock_status_text,
-                    'start_time': analysis_start_time
-                }
-                
+                # Direct progress callback for this stock
+                def stock_on_progress(pct, message, _bar=stock_progress_bar, _text=stock_status_text):
+                    _bar.progress(pct / 100.0)
+                    _text.text(message)
+
                 try:
                     # Convert analysis_date to string format
                     # Handle both date object and potential tuple from date_input
@@ -866,12 +855,13 @@ def stock_analysis_page():
                         date_str = analysis_date[0].strftime('%Y-%m-%d') if hasattr(analysis_date[0], 'strftime') else str(analysis_date[0])
                     else:
                         date_str = datetime.now().strftime('%Y-%m-%d')
-                    
+
                     # Run analysis for this stock
                     result = st.session_state.orchestrator.analyze_stock(
                         ticker=stock_ticker,
                         analysis_date=date_str,
-                        agent_weights=agent_weights
+                        agent_weights=agent_weights,
+                        progress_callback=stock_on_progress
                     )
                     
                     # Track time for this stock

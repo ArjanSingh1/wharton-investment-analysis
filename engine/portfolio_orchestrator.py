@@ -82,11 +82,17 @@ class PortfolioOrchestrator:
         ticker: str,
         analysis_date: str,
         existing_portfolio: List[Dict] = None,
-        agent_weights: Dict[str, float] = None
+        agent_weights: Dict[str, float] = None,
+        progress_callback=None
     ) -> Dict[str, Any]:
         """
         Analyze a single stock using all agents.
-        
+
+        Args:
+            progress_callback: Optional callable(progress_pct: float, message: str)
+                that receives progress updates. The progress_pct is 0-100 and
+                message includes the ETA suffix.
+
         Returns complete analysis with scores, rationale, and recommendations.
         """
         logger.info(f"Starting comprehensive analysis for {ticker} as of {analysis_date}")
@@ -95,55 +101,29 @@ class PortfolioOrchestrator:
         # Phase 1: Data gathering 0-42% (~35s, 42% of total time)
         # Phase 2: Agent analysis 42-98% (~48s, 56% of total time, 5 agents with article fetching)
         # Phase 3: Blending/finalization 98-100% (~1s, 2% of total time)
-        PHASE_DATA_GATHER = (0, 42)    # 0% to 42%
         PHASE_AGENTS = (42, 98)         # 42% to 98%
-        PHASE_FINALIZE = (98, 100)      # 98% to 100%
-
-        # Default phase durations (seconds) - calibrated from multi-ticker test runs
-        # AAPL: 40.3s+46.8s=87.1s, GOOGL: 35.6s+45.2s=80.8s, NVDA: 35.0s+42.6s=77.6s
-        DEFAULT_DATA_GATHER_DURATION = 37
-        DEFAULT_AGENTS_DURATION = 45
-        DEFAULT_FINALIZE_DURATION = 1
 
         analysis_start_time = time.time()
 
         # Reset ETA tracking for this new analysis
         # (prevents stale _eta_previous from previous runs causing counting-up bug)
-        import streamlit as st
-        try:
-            if hasattr(st, 'session_state'):
-                st.session_state._eta_previous = None
-        except Exception:
-            pass
+        _eta_state = {'previous': None}
 
         def update_progress(message, progress_pct):
-            """Update progress bar and status text from the main Streamlit thread.
-
-            Background threads cannot reliably update Streamlit widgets,
-            so all progress updates must happen in the main execution thread.
-            """
-            import streamlit as st
+            """Update progress via the direct callback passed from the caller."""
+            if not progress_callback:
+                return
 
             try:
-                if not hasattr(st, 'session_state') or not hasattr(st.session_state, 'analysis_progress'):
-                    return
+                # Append ETA to the message
+                time_display = ""
+                if progress_pct >= 3:
+                    elapsed = time.time() - analysis_start_time
+                    time_display = PortfolioOrchestrator._estimate_time_remaining(
+                        elapsed, progress_pct, _eta_state
+                    )
 
-                progress = st.session_state.analysis_progress
-
-                # Update progress bar
-                if progress.get('progress_bar'):
-                    progress['progress_bar'].progress(progress_pct / 100.0)
-
-                # Update status text with time remaining
-                if progress.get('status_text'):
-                    time_display = ""
-                    if progress.get('start_time') and progress_pct >= 3:
-                        elapsed = time.time() - progress['start_time']
-                        time_display = PortfolioOrchestrator._estimate_time_remaining(
-                            elapsed, progress_pct, st.session_state
-                        )
-
-                    progress['status_text'].text(f"{message}{time_display}")
+                progress_callback(progress_pct, f"{message}{time_display}")
 
             except Exception as e:
                 logger.error(f"Progress update failed: {e}")
@@ -204,19 +184,6 @@ class PortfolioOrchestrator:
 
         data_gather_elapsed = time.time() - data_gather_start
 
-        # Record phase timing for future estimates
-        try:
-            if hasattr(st, 'session_state'):
-                if not hasattr(st.session_state, 'analysis_phase_times'):
-                    st.session_state.analysis_phase_times = {'data_gather': [], 'agents': []}
-                phase_times = st.session_state.analysis_phase_times
-                phase_times.setdefault('data_gather', []).append(data_gather_elapsed)
-                # Keep last 5 runs
-                if len(phase_times['data_gather']) > 5:
-                    phase_times['data_gather'] = phase_times['data_gather'][-5:]
-        except Exception:
-            pass
-
         update_progress(f"Data gathered for {ticker} in {data_gather_elapsed:.0f}s", 42)
         
         if not data or not data.get('fundamentals'):
@@ -261,7 +228,6 @@ class PortfolioOrchestrator:
         agent_results = {}
         agent_count = 0
         total_agents = len(self.agents)
-        agent_phase_start = time.time()
 
         agent_labels_map = {
             'value_agent': 'Value',
@@ -326,28 +292,6 @@ class PortfolioOrchestrator:
                 }
         
         # 3. Phase 3: Blend scores and finalize (98-100%)
-        agent_phase_elapsed = time.time() - agent_phase_start
-
-        # Record agent phase timing
-        try:
-            if hasattr(st, 'session_state'):
-                if not hasattr(st.session_state, 'analysis_phase_times'):
-                    st.session_state.analysis_phase_times = {'data_gather': [], 'agents': []}
-                phase_times = st.session_state.analysis_phase_times
-                phase_times.setdefault('agents', []).append(agent_phase_elapsed)
-                if len(phase_times['agents']) > 5:
-                    phase_times['agents'] = phase_times['agents'][-5:]
-
-                # Also record total time for overall ETA
-                total_elapsed = time.time() - analysis_start_time
-                if not hasattr(st.session_state, 'analysis_times'):
-                    st.session_state.analysis_times = []
-                st.session_state.analysis_times.append(total_elapsed)
-                if len(st.session_state.analysis_times) > 5:
-                    st.session_state.analysis_times = st.session_state.analysis_times[-5:]
-        except Exception:
-            pass
-
         update_progress(f"Blending agent scores with configured weights...", 98)
         blended_score = self._blend_scores(agent_results)
 
@@ -386,37 +330,45 @@ class PortfolioOrchestrator:
         ticker: str,
         analysis_date: str = None,
         existing_portfolio: List[Dict] = None,
-        agent_weights: Dict[str, float] = None
+        agent_weights: Dict[str, float] = None,
+        progress_callback=None
     ) -> Dict[str, Any]:
         """
         Alias for analyze_single_stock method for backward compatibility.
-        
+
         Args:
             ticker: Stock ticker symbol
             analysis_date: Date for analysis (defaults to today)
             existing_portfolio: Existing portfolio for context
             agent_weights: Custom agent weights for this analysis
-            
+            progress_callback: Optional callable(progress_pct, message) for progress updates
+
         Returns:
             Complete analysis results
         """
         if analysis_date is None:
             analysis_date = datetime.now().strftime('%Y-%m-%d')
-        
+
         return self.analyze_single_stock(
             ticker=ticker,
             analysis_date=analysis_date,
             existing_portfolio=existing_portfolio,
-            agent_weights=agent_weights
+            agent_weights=agent_weights,
+            progress_callback=progress_callback
         )
     
     @staticmethod
-    def _estimate_time_remaining(elapsed: float, progress_pct: float, session_state=None) -> str:
+    def _estimate_time_remaining(elapsed: float, progress_pct: float, eta_state=None) -> str:
         """
         Phase-aware time remaining estimation.
 
         Uses known phase boundaries and durations to calculate remaining time
         based on which phase we're currently in, rather than linear extrapolation.
+
+        Args:
+            elapsed: seconds since analysis started
+            progress_pct: current progress 0-100
+            eta_state: dict with 'previous' key for EMA smoothing
 
         Phase allocations (calibrated from real test runs):
           0-42%:  Data gathering (~35s)
@@ -432,14 +384,6 @@ class PortfolioOrchestrator:
             (42, 98, 45),   # Agent analysis
             (98, 100, 1),   # Finalization
         ]
-
-        # Override defaults with historical data if available
-        if session_state is not None:
-            hist = getattr(session_state, 'analysis_phase_times', {})
-            if hist.get('data_gather') and len(hist['data_gather']) > 0:
-                phases[0] = (0, 42, sum(hist['data_gather']) / len(hist['data_gather']))
-            if hist.get('agents') and len(hist['agents']) > 0:
-                phases[1] = (42, 98, sum(hist['agents']) / len(hist['agents']))
 
         # Find current phase and calculate remaining time
         remaining = 0.0
@@ -462,18 +406,15 @@ class PortfolioOrchestrator:
             return ""
 
         # EMA smoothing to prevent display jumps
-        if session_state is not None:
-            prev = getattr(session_state, '_eta_previous', None)
+        if eta_state is not None:
+            prev = eta_state.get('previous')
             if prev is not None and prev > 0:
                 alpha = 0.4
                 # Cap increases to 15% of previous to avoid upward jumps
                 if remaining > prev * 1.15:
                     remaining = prev * 1.15
                 remaining = alpha * remaining + (1 - alpha) * prev
-            try:
-                session_state._eta_previous = remaining
-            except Exception:
-                pass
+            eta_state['previous'] = remaining
 
         # Ensure non-negative
         if remaining <= 0:
